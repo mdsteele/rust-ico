@@ -366,6 +366,7 @@ impl IconImage {
     /// Encodes the image as a PNG file.
     pub fn to_png<W: Write>(&self, writer: W) -> io::Result<()> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
+        // TODO: Detect if we can encode the image more efficiently.
         encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
         let result =
             encoder.write_header().and_then(|mut writer| {
