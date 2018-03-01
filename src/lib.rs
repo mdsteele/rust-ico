@@ -371,7 +371,7 @@ impl IconImage {
         let decoder = png::Decoder::new(reader);
         let (info, mut reader) = match decoder.read_info() {
             Ok(tuple) => tuple,
-            Err(error) => invalid_data!("Malformed PNG data; {}", error),
+            Err(error) => invalid_data!("Malformed PNG data: {}", error),
         };
         if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
             invalid_data!("Invalid PNG width (was {}, but range is {}-{})",
@@ -392,7 +392,7 @@ impl IconImage {
         let mut buffer = vec![0u8; info.buffer_size()];
         match reader.next_frame(&mut buffer) {
             Ok(()) => {}
-            Err(error) => invalid_data!("Malformed PNG data; {}", error),
+            Err(error) => invalid_data!("Malformed PNG data: {}", error),
         }
         let rgba_data = match info.color_type {
             png::ColorType::RGBA => buffer,
