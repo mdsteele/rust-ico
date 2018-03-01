@@ -711,6 +711,120 @@ mod tests {
     }
 
     #[test]
+    fn read_bmp_1bpp_icon() {
+        let input: &[u8] = b"\
+            \x00\x00\x01\x00\x01\x00\
+            \
+            \x02\x02\x02\x00\x01\x00\x01\x00\
+            \x40\x00\x00\x00\x16\x00\x00\x00\
+            \
+            \x28\x00\x00\x00\x02\x00\x00\x00\x04\x00\x00\x00\
+            \x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x00\x00\
+            \
+            \x55\x00\x55\x00\xff\xff\xff\x00\
+            \
+            \xc0\x00\x00\x00\
+            \x40\x00\x00\x00\
+            \
+            \x40\x00\x00\x00\
+            \x00\x00\x00\x00";
+        let icondir = IconDir::read(Cursor::new(input)).unwrap();
+        assert_eq!(icondir.resource_type(), ResourceType::Icon);
+        assert_eq!(icondir.entries().len(), 1);
+        let entry = &icondir.entries()[0];
+        assert_eq!(entry.width(), 2);
+        assert_eq!(entry.height(), 2);
+        assert!(!entry.is_png());
+        let image = entry.decode().unwrap();
+        assert_eq!(image.width(), 2);
+        assert_eq!(image.height(), 2);
+        let rgba: &[u8] = b"\
+            \x55\x00\x55\xff\xff\xff\xff\xff\
+            \xff\xff\xff\xff\xff\xff\xff\x00";
+        assert_eq!(image.rgba_data(), rgba);
+    }
+
+    #[test]
+    fn read_bmp_4bpp_icon() {
+        let input: &[u8] = b"\
+            \x00\x00\x01\x00\x01\x00\
+            \
+            \x05\x03\x10\x00\x01\x00\x04\x00\
+            \x80\x00\x00\x00\x16\x00\x00\x00\
+            \
+            \x28\x00\x00\x00\x05\x00\x00\x00\x06\x00\x00\x00\
+            \x01\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x00\x00\
+            \
+            \x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x7f\x00\x00\x00\xff\x00\
+            \x00\x7f\x00\x00\x00\xff\x00\x00\
+            \x00\x7f\x7f\x00\x00\xff\xff\x00\
+            \x7f\x00\x00\x00\xff\x00\x00\x00\
+            \x7f\x00\x7f\x00\xff\x00\xff\x00\
+            \x7f\x7f\x00\x00\xff\xff\x00\x00\
+            \x7f\x7f\x7f\x00\xff\xff\xff\x00\
+            \
+            \x0f\x35\x00\x00\
+            \xf3\x59\x10\x00\
+            \x05\x91\x00\x00\
+            \
+            \x88\x00\x00\x00\
+            \x00\x00\x00\x00\
+            \x88\x00\x00\x00";
+        let icondir = IconDir::read(Cursor::new(input)).unwrap();
+        assert_eq!(icondir.resource_type(), ResourceType::Icon);
+        assert_eq!(icondir.entries().len(), 1);
+        let entry = &icondir.entries()[0];
+        assert_eq!(entry.width(), 5);
+        assert_eq!(entry.height(), 3);
+        assert!(!entry.is_png());
+        let image = entry.decode().unwrap();
+        assert_eq!(image.width(), 5);
+        assert_eq!(image.height(), 3);
+        let rgba: &[u8] = b"\
+            \x00\x00\x00\x00\x00\xff\x00\xff\x00\x00\xff\xff\
+            \x00\x00\x00\xff\x00\x00\x00\x00\
+            \xff\xff\xff\xff\xff\x00\x00\xff\x00\xff\x00\xff\
+            \x00\x00\xff\xff\x00\x00\x00\xff\
+            \x00\x00\x00\x00\xff\xff\xff\xff\xff\x00\x00\xff\
+            \x00\xff\x00\xff\x00\x00\x00\x00";
+        assert_eq!(image.rgba_data(), rgba);
+    }
+
+    #[test]
+    fn read_png_grayscale_icon() {
+        let input: &[u8] = b"\
+            \x00\x00\x01\x00\x01\x00\
+            \
+            \x02\x02\x00\x00\x00\x00\x00\x00\
+            \x47\x00\x00\x00\x16\x00\x00\x00\
+            \
+            \x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\
+            \x00\x00\x00\x02\x00\x00\x00\x02\x08\x00\x00\x00\x00\x57\xdd\x52\
+            \xf8\x00\x00\x00\x0e\x49\x44\x41\x54\x78\x9c\x63\xb4\x77\x60\xdc\
+            \xef\x00\x00\x04\x08\x01\x81\x86\x2e\xc9\x8d\x00\x00\x00\x00\x49\
+            \x45\x4e\x44\xae\x42\x60\x82";
+        let icondir = IconDir::read(Cursor::new(input)).unwrap();
+        assert_eq!(icondir.resource_type(), ResourceType::Icon);
+        assert_eq!(icondir.entries().len(), 1);
+        let entry = &icondir.entries()[0];
+        assert_eq!(entry.width(), 2);
+        assert_eq!(entry.height(), 2);
+        assert!(entry.is_png());
+        let image = entry.decode().unwrap();
+        assert_eq!(image.width(), 2);
+        assert_eq!(image.height(), 2);
+        let rgba: &[u8] = b"\
+            \x3f\x3f\x3f\xff\x7f\x7f\x7f\xff\
+            \xbf\xbf\xbf\xff\xff\xff\xff\xff";
+        assert_eq!(image.rgba_data(), rgba);
+    }
+
+    #[test]
     fn image_data_round_trip() {
         // Create an image:
         let width = 11;
