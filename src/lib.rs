@@ -1,4 +1,58 @@
-//! A library for encoding/decoding ICO images files.
+//! A library for encoding/decoding [ICO image
+//! files](https://en.wikipedia.org/wiki/ICO_%28file_format%29).
+//!
+//! # Overview
+//!
+//! An ICO file (.ico) stores a collection of small images of different sizes
+//! and color depths (up to 256x256 pixels each).  Individial images within the
+//! file can be encoded in either BMP or PNG format.  ICO files are typically
+//! used for website favicons and for Windows application icons.
+//!
+//! CUR files (.cur), which store Windows cursor images, use the same file
+//! format as ICO files, except that each image also comes with (x, y)
+//! *hotspot* coordinates that determines where on the image the user is
+//! pointing.  This libary supports both file types.
+//!
+//! # Examples
+//!
+//! ## Reading an ICO file
+//!
+//! ```no_run
+//! // Read an ICO file from disk:
+//! let file = std::fs::File::open("path/to/file.ico").unwrap();
+//! let icon_dir = ico::IconDir::read(file).unwrap();
+//! // Print the size of each image in the ICO file:
+//! for entry in icon_dir.entries() {
+//!     println!("{}x{}", entry.width(), entry.height());
+//! }
+//! // Decode the first entry into an image:
+//! let image = icon_dir.entries()[0].decode().unwrap();
+//! // You can get raw RGBA pixel data to pass to another image library:
+//! let rgba = image.rgba_data();
+//! assert_eq!(rgba.len(), (4 * image.width() * image.height()) as usize);
+//! // Alternatively, you can save the image as a PNG file:
+//! let file = std::fs::File::create("icon.png").unwrap();
+//! image.to_png(file).unwrap();
+//! ```
+//!
+//! ## Creating an ICO file
+//!
+//! ```no_run
+//! // Create a new, empty icon collection:
+//! let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
+//! // Read a PNG file from disk and add it to the collection:
+//! let file = std::fs::File::open("path/to/image.png").unwrap();
+//! let image = ico::IconImage::from_png(file).unwrap();
+//! icon_dir.add_entry(image).unwrap();
+//! // Alternatively, you can create an IconImage from raw RGBA pixel data
+//! // (e.g. from another image library):
+//! let rgba = vec![std::u8::MAX; 4 * 16 * 16];
+//! let image = ico::IconImage::from_rgba_data(16, 16, rgba);
+//! icon_dir.add_entry(image).unwrap();
+//! // Finally, write the ICO file to disk:
+//! let file = std::fs::File::create("favicon.ico").unwrap();
+//! icon_dir.write(file).unwrap();
+//! ```
 
 #![warn(missing_docs)]
 
@@ -61,11 +115,11 @@ macro_rules! invalid_input {
 // ========================================================================= //
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-/// The type of resource stored in an ICO file.
+/// The type of resource stored in an ICO/CUR file.
 pub enum ResourceType {
-    /// Plain images
+    /// Plain images (ICO files)
     Icon,
-    /// Images with cursor hotspots
+    /// Images with cursor hotspots (CUR files)
     Cursor,
 }
 
@@ -88,7 +142,7 @@ impl ResourceType {
 
 // ========================================================================= //
 
-/// A collection of images; the contents of a single ICO file.
+/// A collection of images; the contents of a single ICO or CUR file.
 pub struct IconDir {
     restype: ResourceType,
     entries: Vec<IconDirEntry>,
@@ -128,7 +182,7 @@ impl IconDir {
         Ok(())
     }
 
-    /// Reads an ICO file into memory.
+    /// Reads an ICO or CUR file into memory.
     pub fn read<R: Read + Seek>(mut reader: R) -> io::Result<IconDir> {
         let reserved = reader.read_u16::<LittleEndian>()?;
         if reserved != 0 {
@@ -178,7 +232,7 @@ impl IconDir {
         Ok(IconDir { restype, entries })
     }
 
-    /// Writes an ICO file out to disk.
+    /// Writes an ICO or CUR file out to disk.
     pub fn write<W: Write>(&self, mut writer: W) -> io::Result<()> {
         if self.entries.len() > (u16::MAX as usize) {
             invalid_input!("Too many entries in IconDir \
@@ -221,7 +275,7 @@ impl IconDir {
 
 // ========================================================================= //
 
-/// One entry in an ICO file; a single icon or cursor.
+/// One entry in an ICO or CUR file; a single icon or cursor.
 pub struct IconDirEntry {
     width: u32,
     height: u32,
@@ -238,12 +292,16 @@ impl IconDirEntry {
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
 
+    /// Returns true if this image is encoded as a PNG, or false if it is
+    /// encoded as a BMP.
+    pub fn is_png(&self) -> bool { self.data.starts_with(PNG_SIGNATURE) }
+
     // TODO: Support getting cursor hotspots.
 
     /// Decodes this entry into an image.  Returns an error if the data is
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
-        let image = if self.data.starts_with(PNG_SIGNATURE) {
+        let image = if self.is_png() {
             IconImage::from_png(self.data.as_slice())?
         } else {
             IconImage::from_bmp(self.data.as_slice())?
@@ -262,7 +320,7 @@ impl IconDirEntry {
 
 // ========================================================================= //
 
-/// A decoded image from an ICO file.
+/// A decoded image.
 pub struct IconImage {
     width: u32,
     height: u32,
@@ -273,8 +331,8 @@ impl IconImage {
     /// Creates a new image with the given dimensions and RGBA data.  The
     /// `width` and `height` must each be between 1 and 256 inclusive, and
     /// `rgba_data` must have `4 * width * height` bytes and be in row-major
-    /// order.  Panics if the dimensions are out of range or if `rgba_data` is
-    /// the wrong length.
+    /// order from top to bottom.  Panics if the dimensions are out of range or
+    /// if `rgba_data` is the wrong length.
     pub fn from_rgba_data(width: u32, height: u32, rgba_data: Vec<u8>)
                           -> IconImage {
         if width < MIN_WIDTH || width > MAX_WIDTH {
@@ -597,7 +655,8 @@ impl IconImage {
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
 
-    /// Returns the RGBA data for this image, in row-major order.
+    /// Returns the RGBA data for this image, in row-major order from top to
+    /// bottom.
     pub fn rgba_data(&self) -> &[u8] { &self.rgba_data }
 }
 
