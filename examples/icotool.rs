@@ -53,7 +53,7 @@ fn main() {
                 println!("Adding {:?}", path);
                 let file = fs::File::open(path).unwrap();
                 let image = ico::IconImage::read_png(file).unwrap();
-                icondir.add_entry(image).unwrap();
+                icondir.add_entry(ico::IconDirEntry::encode(image).unwrap());
             }
         }
         let out_file = fs::File::create(out_path).unwrap();

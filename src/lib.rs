@@ -43,12 +43,12 @@
 //! // Read a PNG file from disk and add it to the collection:
 //! let file = std::fs::File::open("path/to/image.png").unwrap();
 //! let image = ico::IconImage::read_png(file).unwrap();
-//! icon_dir.add_entry(image).unwrap();
+//! icon_dir.add_entry(ico::IconDirEntry::encode(image).unwrap());
 //! // Alternatively, you can create an IconImage from raw RGBA pixel data
 //! // (e.g. from another image library):
 //! let rgba = vec![std::u8::MAX; 4 * 16 * 16];
 //! let image = ico::IconImage::from_rgba_data(16, 16, rgba);
-//! icon_dir.add_entry(image).unwrap();
+//! icon_dir.add_entry(ico::IconDirEntry::encode(image).unwrap());
 //! // Finally, write the ICO file to disk:
 //! let file = std::fs::File::create("favicon.ico").unwrap();
 //! icon_dir.write(file).unwrap();
@@ -164,22 +164,9 @@ impl IconDir {
     /// Returns the entries in this collection.
     pub fn entries(&self) -> &[IconDirEntry] { &self.entries }
 
-    /// Encodes an image as a new entry in this collection.  Returns an error
-    /// if the encoding fails.
-    pub fn add_entry(&mut self, image: IconImage) -> io::Result<()> {
-        // TODO: Support setting cursor hotspots.
-        let mut data = Vec::new();
-        image.write_png(&mut data)?;
-        let entry = IconDirEntry {
-            width: image.width(),
-            height: image.height(),
-            num_colors: 0,
-            color_planes: 0,
-            bits_per_pixel: 32,
-            data,
-        };
+    /// Adds an entry to the collection.
+    pub fn add_entry(&mut self, entry: IconDirEntry) {
         self.entries.push(entry);
-        Ok(())
     }
 
     /// Reads an ICO or CUR file into memory.
@@ -315,6 +302,22 @@ impl IconDirEntry {
                           self.height);
         }
         Ok(image)
+    }
+
+    /// Encodes an image as a new entry for an icon collection.  Returns an
+    /// error if the encoding fails.
+    pub fn encode(image: IconImage) -> io::Result<IconDirEntry> {
+        let mut data = Vec::new();
+        image.write_png(&mut data)?;
+        let entry = IconDirEntry {
+            width: image.width(),
+            height: image.height(),
+            num_colors: 0,
+            color_planes: 0,
+            bits_per_pixel: 32,
+            data,
+        };
+        Ok(entry)
     }
 }
 
@@ -664,7 +667,7 @@ impl IconImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{IconDir, IconImage, ResourceType};
+    use super::{IconDir, IconDirEntry, IconImage, ResourceType};
     use std::io::Cursor;
 
     #[test]
@@ -839,7 +842,7 @@ mod tests {
         let image = IconImage::from_rgba_data(width, height, rgba.clone());
         // Write that image into an ICO file:
         let mut icondir = IconDir::new(ResourceType::Icon);
-        icondir.add_entry(image).unwrap();
+        icondir.add_entry(IconDirEntry::encode(image).unwrap());
         let mut file = Vec::<u8>::new();
         icondir.write(&mut file).unwrap();
         // Read the ICO file back in and make sure the image is the same:
