@@ -12,13 +12,27 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
 
+// The size of a BITMAPINFOHEADER struct, in bytes.
+const BMP_HEADER_LEN: u32 = 40;
+
 // The signature that all PNG files start with.
 const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G'];
 
+// Size limits for images in an ICO file:
 const MIN_WIDTH: u32 = 1;
 const MAX_WIDTH: u32 = 256;
 const MIN_HEIGHT: u32 = 1;
 const MAX_HEIGHT: u32 = 256;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BmpDepth {
+    One,
+    Four,
+    Eight,
+    Sixteen,
+    TwentyFour,
+    ThirtyTwo,
+}
 
 // ========================================================================= //
 
@@ -99,6 +113,7 @@ impl IconDir {
     /// Encodes an image as a new entry in this collection.  Returns an error
     /// if the encoding fails.
     pub fn add_entry(&mut self, image: IconImage) -> io::Result<()> {
+        // TODO: Support setting cursor hotspots.
         let mut data = Vec::new();
         image.to_png(&mut data)?;
         let entry = IconDirEntry {
@@ -223,24 +238,25 @@ impl IconDirEntry {
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
 
+    // TODO: Support getting cursor hotspots.
+
     /// Decodes this entry into an image.  Returns an error if the data is
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
-        if self.data.starts_with(PNG_SIGNATURE) {
-            let image = IconImage::from_png(self.data.as_slice())?;
-            if image.width != self.width || image.height != self.height {
-                invalid_data!("Encoded PNG has wrong dimensions \
-                               (was {}x{}, but should be {}x{})",
-                              image.width,
-                              image.height,
-                              self.width,
-                              self.height);
-            }
-            Ok(image)
+        let image = if self.data.starts_with(PNG_SIGNATURE) {
+            IconImage::from_png(self.data.as_slice())?
         } else {
-            // TODO: Implement BMP decoding
-            invalid_data!("Decoding non-PNG images is not yet supported");
+            IconImage::from_bmp(self.data.as_slice())?
+        };
+        if image.width != self.width || image.height != self.height {
+            invalid_data!("Encoded image has wrong dimensions \
+                           (was {}x{}, but should be {}x{})",
+                          image.width,
+                          image.height,
+                          self.width,
+                          self.height);
         }
+        Ok(image)
     }
 }
 
@@ -300,13 +316,13 @@ impl IconImage {
             Err(error) => invalid_data!("Malformed PNG data; {}", error),
         };
         if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
-            invalid_data!("Invalid width (was {}, but range is {}-{})",
+            invalid_data!("Invalid PNG width (was {}, but range is {}-{})",
                           info.width,
                           MIN_WIDTH,
                           MAX_WIDTH);
         }
         if info.height < MIN_HEIGHT || info.height > MAX_HEIGHT {
-            invalid_data!("Invalid height (was {}, but range is {}-{})",
+            invalid_data!("Invalid PNG height (was {}, but range is {}-{})",
                           info.height,
                           MIN_HEIGHT,
                           MAX_HEIGHT);
@@ -361,6 +377,200 @@ impl IconImage {
             }
         };
         Ok(IconImage::from_rgba_data(info.width, info.height, rgba_data))
+    }
+
+    pub(crate) fn from_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
+        // Read the BITMAPINFOHEADER struct:
+        let data_size = reader.read_u32::<LittleEndian>()?;
+        if data_size != BMP_HEADER_LEN {
+            invalid_data!("Invalid BMP header size (was {}, must be {})",
+                          data_size,
+                          BMP_HEADER_LEN);
+        }
+        let width = reader.read_i32::<LittleEndian>()?;
+        if width < (MIN_WIDTH as i32) || width > (MAX_WIDTH as i32) {
+            invalid_data!("Invalid BMP width (was {}, but range is {}-{})",
+                          width,
+                          MIN_WIDTH,
+                          MAX_WIDTH);
+        }
+        let width = width as u32;
+        let height = reader.read_i32::<LittleEndian>()?;
+        if height % 2 != 0 {
+            // The height is stored doubled, counting the rows of both the
+            // color data and the alpha mask, so it should be divisible by 2.
+            invalid_data!("Invalid height field in BMP header \
+                           (was {}, but must be divisible by 2)",
+                          height);
+        }
+        let height = height / 2;
+        if height < (MIN_HEIGHT as i32) || height > (MAX_HEIGHT as i32) {
+            invalid_data!("Invalid BMP height (was {}, but range is {}-{})",
+                          height,
+                          MIN_HEIGHT,
+                          MAX_HEIGHT);
+        }
+        let height = height as u32;
+        let _planes = reader.read_u16::<LittleEndian>()?;
+        let bits_per_pixel = reader.read_u16::<LittleEndian>()? as u32;
+        let _compression = reader.read_u32::<LittleEndian>()?;
+        let _image_size = reader.read_u32::<LittleEndian>()?;
+        let _horz_ppm = reader.read_i32::<LittleEndian>()?;
+        let _vert_ppm = reader.read_i32::<LittleEndian>()?;
+        let _colors_used = reader.read_u32::<LittleEndian>()?;
+        let _colors_important = reader.read_u32::<LittleEndian>()?;
+
+        // Determine the size of the color table:
+        let (depth, num_colors) = match bits_per_pixel {
+            1 => (BmpDepth::One, 2),
+            4 => (BmpDepth::Four, 16),
+            8 => (BmpDepth::Eight, 256),
+            16 => (BmpDepth::Sixteen, 0),
+            24 => (BmpDepth::TwentyFour, 0),
+            32 => (BmpDepth::ThirtyTwo, 0),
+            _ => {
+                invalid_data!("Unsupported BMP bits-per-pixel ({})",
+                              bits_per_pixel);
+            }
+        };
+
+        // Read in the color table:
+        let mut color_table = Vec::<(u8, u8, u8)>::with_capacity(num_colors);
+        for _ in 0..num_colors {
+            let blue = reader.read_u8()?;
+            let green = reader.read_u8()?;
+            let red = reader.read_u8()?;
+            let _reserved = reader.read_u8()?;
+            color_table.push((red, green, blue));
+        }
+
+        // Read in the color data, which is stored row by row, starting from
+        // the *bottom* row:
+        let num_pixels = (width * height) as usize;
+        let mut rgba = vec![u8::MAX; num_pixels * 4];
+        let row_data_size = (width * bits_per_pixel + 7) / 8;
+        let row_padding_size = ((row_data_size + 3) / 4) * 4 - row_data_size;
+        let mut row_padding = vec![0; row_padding_size as usize];
+        for row in 0..height {
+            let mut start = (4 * (height - row - 1) * width) as usize;
+            match depth {
+                BmpDepth::One => {
+                    let mut col = 0;
+                    for _ in 0..row_data_size {
+                        let byte = reader.read_u8()?;
+                        for bit in 0..8 {
+                            let index = (byte >> (7 - bit)) & 0x1;
+                            let (red, green, blue) = color_table[index as
+                                                                     usize];
+                            rgba[start] = red;
+                            rgba[start + 1] = green;
+                            rgba[start + 2] = blue;
+                            col += 1;
+                            if col == width {
+                                break;
+                            }
+                            start += 4;
+                        }
+                    }
+                }
+                BmpDepth::Four => {
+                    let mut col = 0;
+                    for _ in 0..row_data_size {
+                        let byte = reader.read_u8()?;
+                        for nibble in 0..2 {
+                            let index = (byte >> (4 * (1 - nibble))) & 0xf;
+                            let (red, green, blue) = color_table[index as
+                                                                     usize];
+                            rgba[start] = red;
+                            rgba[start + 1] = green;
+                            rgba[start + 2] = blue;
+                            col += 1;
+                            if col == width {
+                                break;
+                            }
+                            start += 4;
+                        }
+                    }
+                }
+                BmpDepth::Eight => {
+                    for _ in 0..width {
+                        let index = reader.read_u8()?;
+                        let (red, green, blue) = color_table[index as usize];
+                        rgba[start] = red;
+                        rgba[start + 1] = green;
+                        rgba[start + 2] = blue;
+                        start += 4;
+                    }
+                }
+                BmpDepth::Sixteen => {
+                    for _ in 0..width {
+                        let color = reader.read_u16::<LittleEndian>()?;
+                        let red = (color >> 10) & 0x1f;
+                        let green = (color >> 5) & 0x1f;
+                        let blue = color & 0x1f;
+                        rgba[start] = ((red * 255 + 15) / 31) as u8;
+                        rgba[start + 1] = ((green * 255 + 15) / 31) as u8;
+                        rgba[start + 2] = ((blue * 255 + 15) / 31) as u8;
+                        start += 4;
+                    }
+                }
+                BmpDepth::TwentyFour => {
+                    for _ in 0..width {
+                        let blue = reader.read_u8()?;
+                        let green = reader.read_u8()?;
+                        let red = reader.read_u8()?;
+                        rgba[start] = red;
+                        rgba[start + 1] = green;
+                        rgba[start + 2] = blue;
+                        start += 4;
+                    }
+                }
+                BmpDepth::ThirtyTwo => {
+                    for _ in 0..width {
+                        let blue = reader.read_u8()?;
+                        let green = reader.read_u8()?;
+                        let red = reader.read_u8()?;
+                        let alpha = reader.read_u8()?;
+                        rgba[start] = red;
+                        rgba[start + 1] = green;
+                        rgba[start + 2] = blue;
+                        rgba[start + 3] = alpha;
+                        start += 4;
+                    }
+                }
+            }
+            reader.read_exact(&mut row_padding)?;
+        }
+
+        // Read in the alpha mask (1 bit per pixel), which again is stored row
+        // by row, starting from the *bottom* row, with each row padded to a
+        // multiple of four bytes:
+        if depth != BmpDepth::ThirtyTwo {
+            let row_mask_size = (width + 7) / 8;
+            let row_padding_size = ((row_mask_size + 3) / 4) * 4 -
+                row_mask_size;
+            let mut row_padding = vec![0; row_padding_size as usize];
+            for row in 0..height {
+                let mut start = (4 * (height - row - 1) * width) as usize;
+                let mut col = 0;
+                for _ in 0..row_mask_size {
+                    let byte = reader.read_u8()?;
+                    for bit in 0..8 {
+                        if ((byte >> (7 - bit)) & 0x1) == 1 {
+                            rgba[start + 3] = 0;
+                        }
+                        start += 4;
+                        col += 1;
+                        if col == width {
+                            break;
+                        }
+                    }
+                }
+                reader.read_exact(&mut row_padding)?;
+            }
+        }
+
+        Ok(IconImage::from_rgba_data(width, height, rgba))
     }
 
     /// Encodes the image as a PNG file.
