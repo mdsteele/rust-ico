@@ -52,7 +52,7 @@ fn main() {
             for path in paths {
                 println!("Adding {:?}", path);
                 let file = fs::File::open(path).unwrap();
-                let image = ico::IconImage::from_png(file).unwrap();
+                let image = ico::IconImage::read_png(file).unwrap();
                 icondir.add_entry(image).unwrap();
             }
         }
@@ -71,7 +71,7 @@ fn main() {
             PathBuf::from(format!("{}.{}.png", path, index))
         };
         let out_file = fs::File::create(out_path).unwrap();
-        image.to_png(out_file).unwrap();
+        image.write_png(out_file).unwrap();
     } else if let Some(submatches) = matches.subcommand_matches("list") {
         let path = submatches.value_of("ico").unwrap();
         let file = fs::File::open(path).unwrap();

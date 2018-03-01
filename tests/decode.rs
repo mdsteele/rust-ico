@@ -31,7 +31,7 @@ fn compare_ico_and_png(ico_path: &str, ico_index: usize, png_path: &str) {
             ico_index);
     let ico_image = icon_dir.entries()[ico_index].decode().unwrap();
     let png_file = File::open(&png_path).unwrap();
-    let png_image = ico::IconImage::from_png(png_file).unwrap();
+    let png_image = ico::IconImage::read_png(png_file).unwrap();
     assert_eq!(ico_image.width(),
                png_image.width(),
                "ICO file {:?} entry {} has width of {}, \

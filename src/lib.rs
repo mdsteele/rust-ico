@@ -32,7 +32,7 @@
 //! assert_eq!(rgba.len(), (4 * image.width() * image.height()) as usize);
 //! // Alternatively, you can save the image as a PNG file:
 //! let file = std::fs::File::create("icon.png").unwrap();
-//! image.to_png(file).unwrap();
+//! image.write_png(file).unwrap();
 //! ```
 //!
 //! ## Creating an ICO file
@@ -42,7 +42,7 @@
 //! let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
 //! // Read a PNG file from disk and add it to the collection:
 //! let file = std::fs::File::open("path/to/image.png").unwrap();
-//! let image = ico::IconImage::from_png(file).unwrap();
+//! let image = ico::IconImage::read_png(file).unwrap();
 //! icon_dir.add_entry(image).unwrap();
 //! // Alternatively, you can create an IconImage from raw RGBA pixel data
 //! // (e.g. from another image library):
@@ -169,7 +169,7 @@ impl IconDir {
     pub fn add_entry(&mut self, image: IconImage) -> io::Result<()> {
         // TODO: Support setting cursor hotspots.
         let mut data = Vec::new();
-        image.to_png(&mut data)?;
+        image.write_png(&mut data)?;
         let entry = IconDirEntry {
             width: image.width(),
             height: image.height(),
@@ -302,9 +302,9 @@ impl IconDirEntry {
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
         let image = if self.is_png() {
-            IconImage::from_png(self.data.as_slice())?
+            IconImage::read_png(self.data.as_slice())?
         } else {
-            IconImage::from_bmp(self.data.as_slice())?
+            IconImage::read_bmp(self.data.as_slice())?
         };
         if image.width != self.width || image.height != self.height {
             invalid_data!("Encoded image has wrong dimensions \
@@ -367,7 +367,7 @@ impl IconImage {
     /// must each be between 1 and 256 inclusive.  Returns an error if the PNG
     /// data is malformed or can't be decoded, or if the size of the PNG image
     /// is out of range.
-    pub fn from_png<R: Read>(reader: R) -> io::Result<IconImage> {
+    pub fn read_png<R: Read>(reader: R) -> io::Result<IconImage> {
         let decoder = png::Decoder::new(reader);
         let (info, mut reader) = match decoder.read_info() {
             Ok(tuple) => tuple,
@@ -437,7 +437,7 @@ impl IconImage {
         Ok(IconImage::from_rgba_data(info.width, info.height, rgba_data))
     }
 
-    pub(crate) fn from_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
+    pub(crate) fn read_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
         // Read the BITMAPINFOHEADER struct:
         let data_size = reader.read_u32::<LittleEndian>()?;
         if data_size != BMP_HEADER_LEN {
@@ -632,7 +632,7 @@ impl IconImage {
     }
 
     /// Encodes the image as a PNG file.
-    pub fn to_png<W: Write>(&self, writer: W) -> io::Result<()> {
+    pub fn write_png<W: Write>(&self, writer: W) -> io::Result<()> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         // TODO: Detect if we can encode the image more efficiently.
         encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
