@@ -43,12 +43,12 @@
 //! // Read a PNG file from disk and add it to the collection:
 //! let file = std::fs::File::open("path/to/image.png").unwrap();
 //! let image = ico::IconImage::read_png(file).unwrap();
-//! icon_dir.add_entry(ico::IconDirEntry::encode(image).unwrap());
+//! icon_dir.add_entry(ico::IconDirEntry::encode(&image).unwrap());
 //! // Alternatively, you can create an IconImage from raw RGBA pixel data
 //! // (e.g. from another image library):
 //! let rgba = vec![std::u8::MAX; 4 * 16 * 16];
 //! let image = ico::IconImage::from_rgba_data(16, 16, rgba);
-//! icon_dir.add_entry(ico::IconDirEntry::encode(image).unwrap());
+//! icon_dir.add_entry(ico::IconDirEntry::encode(&image).unwrap());
 //! // Finally, write the ICO file to disk:
 //! let file = std::fs::File::create("favicon.ico").unwrap();
 //! icon_dir.write(file).unwrap();
@@ -62,6 +62,7 @@ extern crate png;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use png::HasParameters;
 use std::{u16, u8};
+use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
@@ -77,16 +78,6 @@ const MIN_WIDTH: u32 = 1;
 const MAX_WIDTH: u32 = 256;
 const MIN_HEIGHT: u32 = 1;
 const MAX_HEIGHT: u32 = 256;
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum BmpDepth {
-    One,
-    Four,
-    Eight,
-    Sixteen,
-    TwentyFour,
-    ThirtyTwo,
-}
 
 // ========================================================================= //
 
@@ -143,6 +134,7 @@ impl ResourceType {
 // ========================================================================= //
 
 /// A collection of images; the contents of a single ICO or CUR file.
+#[derive(Clone)]
 pub struct IconDir {
     restype: ResourceType,
     entries: Vec<IconDirEntry>,
@@ -263,6 +255,7 @@ impl IconDir {
 // ========================================================================= //
 
 /// One entry in an ICO or CUR file; a single icon or cursor.
+#[derive(Clone)]
 pub struct IconDirEntry {
     width: u32,
     height: u32,
@@ -279,9 +272,15 @@ impl IconDirEntry {
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
 
-    /// Returns true if this image is encoded as a PNG, or false if it is
+    /// Returns the bits-per-pixel (color depth) of the image.
+    pub fn bits_per_pixel(&self) -> u16 { self.bits_per_pixel }
+
+    /// Returns true if the image is encoded as a PNG, or false if it is
     /// encoded as a BMP.
     pub fn is_png(&self) -> bool { self.data.starts_with(PNG_SIGNATURE) }
+
+    /// Returns the raw, encoded image data.
+    pub fn data(&self) -> &[u8] { &self.data }
 
     // TODO: Support getting cursor hotspots.
 
@@ -304,17 +303,41 @@ impl IconDirEntry {
         Ok(image)
     }
 
-    /// Encodes an image as a new entry for an icon collection.  Returns an
-    /// error if the encoding fails.
-    pub fn encode(image: IconImage) -> io::Result<IconDirEntry> {
+    /// Encodes an image in a new entry.  The encoding method is chosen
+    /// automatically based on the image.  Returns an error if the encoding
+    /// fails.
+    pub fn encode(image: &IconImage) -> io::Result<IconDirEntry> {
+        // TODO: Use image stats to decide if BMP might be more appropriate.
+        IconDirEntry::encode_as_png(image)
+    }
+
+    /// Encodes an image as a BMP in a new entry.  The color depth is
+    /// determined automatically based on the image.  Returns an error if the
+    /// encoding fails.
+    pub fn encode_as_bmp(image: &IconImage) -> io::Result<IconDirEntry> {
+        let (num_colors, bits_per_pixel, data) = image.write_bmp_internal()?;
+        let entry = IconDirEntry {
+            width: image.width(),
+            height: image.height(),
+            num_colors,
+            color_planes: 0,
+            bits_per_pixel,
+            data,
+        };
+        Ok(entry)
+    }
+
+    /// Encodes an image as a PNG in a new entry.  Returns an error if the
+    /// encoding fails.
+    pub fn encode_as_png(image: &IconImage) -> io::Result<IconDirEntry> {
         let mut data = Vec::new();
-        image.write_png(&mut data)?;
+        let bits_per_pixel = image.write_png_internal(&mut data)?;
         let entry = IconDirEntry {
             width: image.width(),
             height: image.height(),
             num_colors: 0,
             color_planes: 0,
-            bits_per_pixel: 32,
+            bits_per_pixel,
             data,
         };
         Ok(entry)
@@ -324,6 +347,7 @@ impl IconDirEntry {
 // ========================================================================= //
 
 /// A decoded image.
+#[derive(Clone)]
 pub struct IconImage {
     width: u32,
     height: u32,
@@ -440,6 +464,56 @@ impl IconImage {
         Ok(IconImage::from_rgba_data(info.width, info.height, rgba_data))
     }
 
+    /// Encodes the image as a PNG file.
+    pub fn write_png<W: Write>(&self, writer: W) -> io::Result<()> {
+        let _bits_per_pixel = self.write_png_internal(writer)?;
+        Ok(())
+    }
+
+    /// Encodes the image as a PNG file and returns the bits-per-pixel.
+    pub(crate) fn write_png_internal<W: Write>(&self, writer: W)
+                                               -> io::Result<u16> {
+        match self.write_png_internal_enc(writer) {
+            Ok(bits_per_pixel) => Ok(bits_per_pixel),
+            Err(png::EncodingError::IoError(error)) => return Err(error),
+            Err(png::EncodingError::Format(error)) => {
+                invalid_input!("PNG format error: {}", error);
+            }
+        }
+    }
+
+    /// Encodes the image as a PNG file and returns the bits-per-pixel (or the
+    /// `png::EncodingError`).
+    fn write_png_internal_enc<W: Write>(&self, writer: W)
+                                        -> Result<u16, png::EncodingError> {
+        let stats = self.stats();
+        let mut encoder = png::Encoder::new(writer, self.width, self.height);
+        // TODO: Detect if we can use grayscale.
+        if stats.has_alpha {
+            encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
+        } else {
+            encoder.set(png::ColorType::RGB).set(png::BitDepth::Eight);
+        }
+        let mut writer = encoder.write_header()?;
+        if stats.has_alpha {
+            writer.write_image_data(&self.rgba_data)?;
+            Ok(32)
+        } else {
+            debug_assert_eq!(self.rgba_data.len() % 4, 0);
+            let mut rgb_data =
+                Vec::<u8>::with_capacity((self.rgba_data.len() / 4) * 3);
+            let mut start = 0;
+            while start < self.rgba_data.len() {
+                rgb_data.push(self.rgba_data[start]);
+                rgb_data.push(self.rgba_data[start + 1]);
+                rgb_data.push(self.rgba_data[start + 2]);
+                start += 4;
+            }
+            writer.write_image_data(&rgb_data)?;
+            Ok(24)
+        }
+    }
+
     pub(crate) fn read_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
         // Read the BITMAPINFOHEADER struct:
         let data_size = reader.read_u32::<LittleEndian>()?;
@@ -482,18 +556,19 @@ impl IconImage {
         let _colors_important = reader.read_u32::<LittleEndian>()?;
 
         // Determine the size of the color table:
-        let (depth, num_colors) = match bits_per_pixel {
-            1 => (BmpDepth::One, 2),
-            4 => (BmpDepth::Four, 16),
-            8 => (BmpDepth::Eight, 256),
-            16 => (BmpDepth::Sixteen, 0),
-            24 => (BmpDepth::TwentyFour, 0),
-            32 => (BmpDepth::ThirtyTwo, 0),
+        let depth = match bits_per_pixel {
+            1 => BmpDepth::One,
+            4 => BmpDepth::Four,
+            8 => BmpDepth::Eight,
+            16 => BmpDepth::Sixteen,
+            24 => BmpDepth::TwentyFour,
+            32 => BmpDepth::ThirtyTwo,
             _ => {
                 invalid_data!("Unsupported BMP bits-per-pixel ({})",
                               bits_per_pixel);
             }
         };
+        let num_colors = depth.num_colors();
 
         // Read in the color table:
         let mut color_table = Vec::<(u8, u8, u8)>::with_capacity(num_colors);
@@ -620,11 +695,11 @@ impl IconImage {
                         if ((byte >> (7 - bit)) & 0x1) == 1 {
                             rgba[start + 3] = 0;
                         }
-                        start += 4;
                         col += 1;
                         if col == width {
                             break;
                         }
+                        start += 4;
                     }
                 }
                 reader.read_exact(&mut row_padding)?;
@@ -634,22 +709,194 @@ impl IconImage {
         Ok(IconImage::from_rgba_data(width, height, rgba))
     }
 
-    /// Encodes the image as a PNG file.
-    pub fn write_png<W: Write>(&self, writer: W) -> io::Result<()> {
-        let mut encoder = png::Encoder::new(writer, self.width, self.height);
-        // TODO: Detect if we can encode the image more efficiently.
-        encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
-        let result =
-            encoder.write_header().and_then(|mut writer| {
-                writer.write_image_data(&self.rgba_data)
-            });
-        match result {
-            Ok(()) => Ok(()),
-            Err(png::EncodingError::IoError(error)) => return Err(error),
-            Err(png::EncodingError::Format(error)) => {
-                invalid_input!("PNG format error: {}", error);
+    /// Encodes the image as a BMP and returns the size of the color table, the
+    /// bits-per-pixel, and the encoded data.
+    pub(crate) fn write_bmp_internal(&self) -> io::Result<(u8, u16, Vec<u8>)> {
+        // Determine the most appropriate color depth for encoding this image:
+        let width = self.width();
+        let height = self.height();
+        let rgba = self.rgba_data();
+        let stats = self.stats();
+        let (depth, colors) = if stats.has_nonbinary_alpha {
+            // Only 32 bpp can support alpha values between 0 and 255, even if
+            // the image has a small number of colors, because the BMP color
+            // table can't contain alpha values.
+            (BmpDepth::ThirtyTwo, Vec::new())
+        } else if let Some(colors) = stats.colors {
+            if colors.len() <= 2 {
+                (BmpDepth::One, colors.iter().cloned().collect())
+            } else if colors.len() <= 16 {
+                (BmpDepth::Four, colors.iter().cloned().collect())
+            } else {
+                debug_assert!(colors.len() <= 256);
+                if width * height < 512 {
+                    // At fewer than 512 pixels, it's more efficient to encode
+                    // at 24 bpp, so we can omit the 256-entry color table.
+                    (BmpDepth::TwentyFour, Vec::new())
+                } else {
+                    (BmpDepth::Eight, colors.iter().cloned().collect())
+                }
             }
+        } else {
+            (BmpDepth::TwentyFour, Vec::new())
+        };
+        let bits_per_pixel = depth.bits_per_pixel();
+        let num_colors = depth.num_colors();
+
+        // Determine the size of the encoded data:
+        let rgb_row_data_size = ((width as usize) * bits_per_pixel + 7) / 8;
+        let rgb_row_size = ((rgb_row_data_size + 3) / 4) * 4;
+        let rgb_row_padding = vec![0u8; rgb_row_size - rgb_row_data_size];
+        let mask_row_data_size = (width as usize + 7) / 8;
+        let mask_row_size = ((mask_row_data_size + 3) / 4) * 4;
+        let mask_row_padding = vec![0u8; mask_row_size - mask_row_data_size];
+        let data_size = BMP_HEADER_LEN as usize + 4 * num_colors +
+            height as usize * (rgb_row_size + mask_row_size);
+        let mut data = Vec::<u8>::with_capacity(data_size);
+
+        // Write the BITMAPINFOHEADER struct:
+        data.write_u32::<LittleEndian>(BMP_HEADER_LEN)?;
+        data.write_i32::<LittleEndian>(width as i32)?;
+        data.write_i32::<LittleEndian>(2 * height as i32)?;
+        data.write_u16::<LittleEndian>(1)?; // planes
+        data.write_u16::<LittleEndian>(bits_per_pixel as u16)?;
+        data.write_u32::<LittleEndian>(0)?; // compression
+        data.write_u32::<LittleEndian>(0)?; // image size
+        data.write_i32::<LittleEndian>(0)?; // horz ppm
+        data.write_i32::<LittleEndian>(0)?; // vert ppm
+        data.write_u32::<LittleEndian>(0)?; // colors used
+        data.write_u32::<LittleEndian>(0)?; // colors important
+        debug_assert_eq!(data.len(), BMP_HEADER_LEN as usize);
+
+        // Write the color table:
+        let mut color_map = HashMap::<(u8, u8, u8), u8>::new();
+        for (index, &(red, green, blue)) in colors.iter().enumerate() {
+            color_map.insert((red, green, blue), index as u8);
+            data.write_u8(blue)?;
+            data.write_u8(green)?;
+            data.write_u8(red)?;
+            data.write_u8(0)?;
         }
+        debug_assert!(color_map.len() <= num_colors);
+        for _ in 0..(num_colors - color_map.len()) {
+            data.write_u32::<LittleEndian>(0)?;
+        }
+
+        // Write the color data:
+        for row in 0..height {
+            let mut start = (4 * (height - row - 1) * width) as usize;
+            match depth {
+                BmpDepth::One => {
+                    let mut col = 0;
+                    for _ in 0..rgb_row_data_size {
+                        let mut byte = 0;
+                        for bit in 0..8 {
+                            let red = rgba[start];
+                            let green = rgba[start + 1];
+                            let blue = rgba[start + 2];
+                            let color = (red, green, blue);
+                            let index = *color_map.get(&color).unwrap();
+                            debug_assert!(index <= 0x1);
+                            byte |= index << (7 - bit);
+                            col += 1;
+                            if col == width {
+                                break;
+                            }
+                            start += 4;
+                        }
+                        data.write_u8(byte)?;
+                    }
+                }
+                BmpDepth::Four => {
+                    let mut col = 0;
+                    for _ in 0..rgb_row_data_size {
+                        let mut byte = 0;
+                        for nibble in 0..2 {
+                            let red = rgba[start];
+                            let green = rgba[start + 1];
+                            let blue = rgba[start + 2];
+                            let color = (red, green, blue);
+                            let index = *color_map.get(&color).unwrap();
+                            debug_assert!(index <= 0xf);
+                            byte |= index << (4 * (1 - nibble));
+                            col += 1;
+                            if col == width {
+                                break;
+                            }
+                            start += 4;
+                        }
+                        data.write_u8(byte)?;
+                    }
+                }
+                BmpDepth::Eight => {
+                    debug_assert_eq!(width as usize, rgb_row_data_size);
+                    for _ in 0..width {
+                        let red = rgba[start];
+                        let green = rgba[start + 1];
+                        let blue = rgba[start + 2];
+                        let color = (red, green, blue);
+                        data.write_u8(*color_map.get(&color).unwrap())?;
+                        start += 4;
+                    }
+                }
+                BmpDepth::Sixteen => {
+                    // We never choose BmpDepth::Sixteen above, so this should
+                    // be unreachable.
+                    invalid_input!("Encoding 16-bpp BMPs is not implemented");
+                }
+                BmpDepth::TwentyFour => {
+                    debug_assert_eq!(3 * width as usize, rgb_row_data_size);
+                    for _ in 0..width {
+                        let red = rgba[start];
+                        let green = rgba[start + 1];
+                        let blue = rgba[start + 2];
+                        data.write_u8(blue)?;
+                        data.write_u8(green)?;
+                        data.write_u8(red)?;
+                        start += 4;
+                    }
+                }
+                BmpDepth::ThirtyTwo => {
+                    debug_assert_eq!(4 * width as usize, rgb_row_data_size);
+                    for _ in 0..width {
+                        let red = rgba[start];
+                        let green = rgba[start + 1];
+                        let blue = rgba[start + 2];
+                        let alpha = rgba[start + 3];
+                        data.write_u8(blue)?;
+                        data.write_u8(green)?;
+                        data.write_u8(red)?;
+                        data.write_u8(alpha)?;
+                        start += 4;
+                    }
+                }
+            }
+            data.write_all(&rgb_row_padding)?;
+        }
+
+        // Write the mask data:
+        for row in 0..height {
+            let mut start = (4 * (height - row - 1) * width) as usize;
+            let mut col = 0;
+            for _ in 0..mask_row_data_size {
+                let mut byte = 0;
+                for bit in 0..8 {
+                    if rgba[start + 3] == 0 {
+                        byte |= 1 << (7 - bit);
+                    }
+                    col += 1;
+                    if col == width {
+                        break;
+                    }
+                    start += 4;
+                }
+                data.write_u8(byte)?;
+            }
+            data.write_all(&mask_row_padding)?;
+        }
+
+        debug_assert_eq!(data.len(), data_size);
+        Ok((num_colors as u8, bits_per_pixel as u16, data))
     }
 
     /// Returns the width of the image, in pixels.
@@ -661,6 +908,82 @@ impl IconImage {
     /// Returns the RGBA data for this image, in row-major order from top to
     /// bottom.
     pub fn rgba_data(&self) -> &[u8] { &self.rgba_data }
+
+    pub(crate) fn stats(&self) -> ImageStats {
+        let mut colors = BTreeSet::<(u8, u8, u8)>::new();
+        let mut has_alpha = false;
+        let mut has_nonbinary_alpha = false;
+        let mut start = 0;
+        while start < self.rgba_data.len() {
+            let alpha = self.rgba_data[start + 3];
+            if alpha != u8::MAX {
+                has_alpha = true;
+                if alpha != 0 {
+                    has_nonbinary_alpha = true;
+                }
+            }
+            if colors.len() <= 256 {
+                let red = self.rgba_data[start];
+                let green = self.rgba_data[start + 1];
+                let blue = self.rgba_data[start + 2];
+                colors.insert((red, green, blue));
+            }
+            start += 4;
+        }
+        ImageStats {
+            has_alpha,
+            has_nonbinary_alpha,
+            colors: if colors.len() <= 256 {
+                Some(colors)
+            } else {
+                None
+            },
+        }
+    }
+}
+
+// ========================================================================= //
+
+struct ImageStats {
+    /// True if the image uses transparency.
+    has_alpha: bool,
+    /// True if the image has alpha values between 0 and the maximum exclusive.
+    has_nonbinary_alpha: bool,
+    /// A table of at most 256 colors, or `None` if the image has more than 256
+    /// colors.
+    colors: Option<BTreeSet<(u8, u8, u8)>>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BmpDepth {
+    One,
+    Four,
+    Eight,
+    Sixteen,
+    TwentyFour,
+    ThirtyTwo,
+}
+
+impl BmpDepth {
+    fn bits_per_pixel(&self) -> usize {
+        match *self {
+            BmpDepth::One => 1,
+            BmpDepth::Four => 4,
+            BmpDepth::Eight => 8,
+            BmpDepth::Sixteen => 16,
+            BmpDepth::TwentyFour => 24,
+            BmpDepth::ThirtyTwo => 32,
+        }
+    }
+
+    fn num_colors(&self) -> usize {
+        match *self {
+            BmpDepth::One => 2,
+            BmpDepth::Four => 16,
+            BmpDepth::Eight => 256,
+            _ => 0,
+        }
+    }
 }
 
 // ========================================================================= //
@@ -842,7 +1165,7 @@ mod tests {
         let image = IconImage::from_rgba_data(width, height, rgba.clone());
         // Write that image into an ICO file:
         let mut icondir = IconDir::new(ResourceType::Icon);
-        icondir.add_entry(IconDirEntry::encode(image).unwrap());
+        icondir.add_entry(IconDirEntry::encode(&image).unwrap());
         let mut file = Vec::<u8>::new();
         icondir.write(&mut file).unwrap();
         // Read the ICO file back in and make sure the image is the same:
