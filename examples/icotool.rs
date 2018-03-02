@@ -78,7 +78,13 @@ fn main() {
         let icondir = ico::IconDir::read(file).unwrap();
         println!("Resource type: {:?}", icondir.resource_type());
         for (index, entry) in icondir.entries().iter().enumerate() {
-            println!("{:5}: {}x{}", index, entry.width(), entry.height());
+            let kind = if entry.is_png() { "PNG" } else { "BMP" };
+            println!("{:5}: {}x{} {} ({} bpp)",
+                     index,
+                     entry.width(),
+                     entry.height(),
+                     kind,
+                     entry.bits_per_pixel());
         }
     }
 }

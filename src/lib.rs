@@ -307,31 +307,53 @@ impl IconDirEntry {
     /// automatically based on the image.  Returns an error if the encoding
     /// fails.
     pub fn encode(image: &IconImage) -> io::Result<IconDirEntry> {
-        // TODO: Use image stats to decide if BMP might be more appropriate.
-        IconDirEntry::encode_as_png(image)
+        let stats = image.compute_stats();
+        // Very rough heuristic: Use PNG only for images with complicated alpha
+        // or for large images, which are cases where PNG's better compression
+        // is a big savings.  Otherwise, prefer BMP for its better
+        // backwards-compatibility with older ICO consumers.
+        let use_png = stats.has_nonbinary_alpha ||
+            image.width() * image.height() > 64 * 64;
+        if use_png {
+            IconDirEntry::encode_as_png_internal(image, &stats)
+        } else {
+            IconDirEntry::encode_as_bmp_internal(image, &stats)
+        }
     }
 
     /// Encodes an image as a BMP in a new entry.  The color depth is
     /// determined automatically based on the image.  Returns an error if the
     /// encoding fails.
     pub fn encode_as_bmp(image: &IconImage) -> io::Result<IconDirEntry> {
-        let (num_colors, bits_per_pixel, data) = image.write_bmp_internal()?;
+        IconDirEntry::encode_as_bmp_internal(image, &image.compute_stats())
+    }
+
+    fn encode_as_bmp_internal(image: &IconImage, stats: &ImageStats)
+                              -> io::Result<IconDirEntry> {
+        let (num_colors, bits_per_pixel, data) =
+            image.write_bmp_internal(stats)?;
         let entry = IconDirEntry {
             width: image.width(),
             height: image.height(),
             num_colors,
-            color_planes: 0,
+            color_planes: 1,
             bits_per_pixel,
             data,
         };
         Ok(entry)
     }
 
-    /// Encodes an image as a PNG in a new entry.  Returns an error if the
+    /// Encodes an image as a PNG in a new entry.  The color depth is
+    /// determined automatically based on the image.  Returns an error if the
     /// encoding fails.
     pub fn encode_as_png(image: &IconImage) -> io::Result<IconDirEntry> {
+        IconDirEntry::encode_as_png_internal(image, &image.compute_stats())
+    }
+
+    fn encode_as_png_internal(image: &IconImage, stats: &ImageStats)
+                              -> io::Result<IconDirEntry> {
         let mut data = Vec::new();
-        let bits_per_pixel = image.write_png_internal(&mut data)?;
+        let bits_per_pixel = image.write_png_internal(stats, &mut data)?;
         let entry = IconDirEntry {
             width: image.width(),
             height: image.height(),
@@ -466,14 +488,16 @@ impl IconImage {
 
     /// Encodes the image as a PNG file.
     pub fn write_png<W: Write>(&self, writer: W) -> io::Result<()> {
-        let _bits_per_pixel = self.write_png_internal(writer)?;
+        let _bits_per_pixel =
+            self.write_png_internal(&self.compute_stats(), writer)?;
         Ok(())
     }
 
     /// Encodes the image as a PNG file and returns the bits-per-pixel.
-    pub(crate) fn write_png_internal<W: Write>(&self, writer: W)
+    pub(crate) fn write_png_internal<W: Write>(&self, stats: &ImageStats,
+                                               writer: W)
                                                -> io::Result<u16> {
-        match self.write_png_internal_enc(writer) {
+        match self.write_png_internal_enc(stats, writer) {
             Ok(bits_per_pixel) => Ok(bits_per_pixel),
             Err(png::EncodingError::IoError(error)) => return Err(error),
             Err(png::EncodingError::Format(error)) => {
@@ -484,9 +508,8 @@ impl IconImage {
 
     /// Encodes the image as a PNG file and returns the bits-per-pixel (or the
     /// `png::EncodingError`).
-    fn write_png_internal_enc<W: Write>(&self, writer: W)
+    fn write_png_internal_enc<W: Write>(&self, stats: &ImageStats, writer: W)
                                         -> Result<u16, png::EncodingError> {
-        let stats = self.stats();
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         // TODO: Detect if we can use grayscale.
         if stats.has_alpha {
@@ -711,18 +734,18 @@ impl IconImage {
 
     /// Encodes the image as a BMP and returns the size of the color table, the
     /// bits-per-pixel, and the encoded data.
-    pub(crate) fn write_bmp_internal(&self) -> io::Result<(u8, u16, Vec<u8>)> {
+    pub(crate) fn write_bmp_internal(&self, stats: &ImageStats)
+                                     -> io::Result<(u8, u16, Vec<u8>)> {
         // Determine the most appropriate color depth for encoding this image:
         let width = self.width();
         let height = self.height();
         let rgba = self.rgba_data();
-        let stats = self.stats();
         let (depth, colors) = if stats.has_nonbinary_alpha {
             // Only 32 bpp can support alpha values between 0 and 255, even if
             // the image has a small number of colors, because the BMP color
             // table can't contain alpha values.
             (BmpDepth::ThirtyTwo, Vec::new())
-        } else if let Some(colors) = stats.colors {
+        } else if let Some(ref colors) = stats.colors {
             if colors.len() <= 2 {
                 (BmpDepth::One, colors.iter().cloned().collect())
             } else if colors.len() <= 16 {
@@ -909,7 +932,7 @@ impl IconImage {
     /// bottom.
     pub fn rgba_data(&self) -> &[u8] { &self.rgba_data }
 
-    pub(crate) fn stats(&self) -> ImageStats {
+    pub(crate) fn compute_stats(&self) -> ImageStats {
         let mut colors = BTreeSet::<(u8, u8, u8)>::new();
         let mut has_alpha = false;
         let mut has_nonbinary_alpha = false;
