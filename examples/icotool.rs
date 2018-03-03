@@ -79,12 +79,17 @@ fn main() {
         println!("Resource type: {:?}", icondir.resource_type());
         for (index, entry) in icondir.entries().iter().enumerate() {
             let kind = if entry.is_png() { "PNG" } else { "BMP" };
-            println!("{:5}: {}x{} {} ({} bpp)",
+            let suffix = if let Some((x, y)) = entry.cursor_hotspot() {
+                format!("hotspot at ({}, {})", x, y)
+            } else {
+                format!("{} bpp", entry.bits_per_pixel())
+            };
+            println!("{:5}: {}x{} {}, {}",
                      index,
                      entry.width(),
                      entry.height(),
                      kind,
-                     entry.bits_per_pixel());
+                     suffix);
         }
     }
 }

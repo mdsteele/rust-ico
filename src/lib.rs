@@ -156,8 +156,14 @@ impl IconDir {
     /// Returns the entries in this collection.
     pub fn entries(&self) -> &[IconDirEntry] { &self.entries }
 
-    /// Adds an entry to the collection.
+    /// Adds an entry to the collection.  Panics if `self.resource_type() !=
+    /// entry.resource_type()`.
     pub fn add_entry(&mut self, entry: IconDirEntry) {
+        if self.resource_type() != entry.resource_type() {
+            panic!("Can't add {:?} IconDirEntry to {:?} IconDir",
+                   entry.resource_type(),
+                   self.resource_type());
+        }
         self.entries.push(entry);
     }
 
@@ -193,6 +199,7 @@ impl IconDir {
             let data_offset = reader.read_u32::<LittleEndian>()?;
             spans.push((data_offset, data_size));
             let entry = IconDirEntry {
+                restype,
                 width: if width == 0 { 256 } else { width as u32 },
                 height: if height == 0 { 256 } else { height as u32 },
                 num_colors,
@@ -257,6 +264,7 @@ impl IconDir {
 /// One entry in an ICO or CUR file; a single icon or cursor.
 #[derive(Clone)]
 pub struct IconDirEntry {
+    restype: ResourceType,
     width: u32,
     height: u32,
     num_colors: u8,
@@ -266,14 +274,37 @@ pub struct IconDirEntry {
 }
 
 impl IconDirEntry {
+    /// Returns the type of resource stored in this entry, either an icon or a
+    /// cursor.
+    pub fn resource_type(&self) -> ResourceType { self.restype }
+
     /// Returns the width of the image, in pixels.
     pub fn width(&self) -> u32 { self.width }
 
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
 
-    /// Returns the bits-per-pixel (color depth) of the image.
-    pub fn bits_per_pixel(&self) -> u16 { self.bits_per_pixel }
+    /// Returns the bits-per-pixel (color depth) of the image.  Returns zero if
+    /// `self.resource_type() == ResourceType::Cursor` (since CUR files store
+    /// hotspot coordinates in place of this field).
+    pub fn bits_per_pixel(&self) -> u16 {
+        if self.restype == ResourceType::Cursor {
+            0
+        } else {
+            self.bits_per_pixel
+        }
+    }
+
+    /// Returns the coordinates of the cursor hotspot (pixels right from the
+    /// left edge of the image, and pixels down from the top edge), or `None`
+    /// if `self.resource_type() != ResourceType::Cursor`.
+    pub fn cursor_hotspot(&self) -> Option<(u16, u16)> {
+        if self.restype == ResourceType::Cursor {
+            Some((self.color_planes, self.bits_per_pixel))
+        } else {
+            None
+        }
+    }
 
     /// Returns true if the image is encoded as a PNG, or false if it is
     /// encoded as a BMP.
@@ -282,12 +313,10 @@ impl IconDirEntry {
     /// Returns the raw, encoded image data.
     pub fn data(&self) -> &[u8] { &self.data }
 
-    // TODO: Support getting cursor hotspots.
-
     /// Decodes this entry into an image.  Returns an error if the data is
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
-        let image = if self.is_png() {
+        let mut image = if self.is_png() {
             IconImage::read_png(self.data.as_slice())?
         } else {
             IconImage::read_bmp(self.data.as_slice())?
@@ -300,6 +329,7 @@ impl IconDirEntry {
                           self.width,
                           self.height);
         }
+        image.set_cursor_hotspot(self.cursor_hotspot());
         Ok(image)
     }
 
@@ -332,11 +362,19 @@ impl IconDirEntry {
                               -> io::Result<IconDirEntry> {
         let (num_colors, bits_per_pixel, data) =
             image.write_bmp_internal(stats)?;
+        let (color_planes, bits_per_pixel) =
+            image.cursor_hotspot().unwrap_or((1, bits_per_pixel));
+        let restype = if image.cursor_hotspot().is_some() {
+            ResourceType::Cursor
+        } else {
+            ResourceType::Icon
+        };
         let entry = IconDirEntry {
+            restype,
             width: image.width(),
             height: image.height(),
             num_colors,
-            color_planes: 1,
+            color_planes,
             bits_per_pixel,
             data,
         };
@@ -354,11 +392,19 @@ impl IconDirEntry {
                               -> io::Result<IconDirEntry> {
         let mut data = Vec::new();
         let bits_per_pixel = image.write_png_internal(stats, &mut data)?;
+        let (color_planes, bits_per_pixel) =
+            image.cursor_hotspot().unwrap_or((0, bits_per_pixel));
+        let restype = if image.cursor_hotspot().is_some() {
+            ResourceType::Cursor
+        } else {
+            ResourceType::Icon
+        };
         let entry = IconDirEntry {
+            restype,
             width: image.width(),
             height: image.height(),
             num_colors: 0,
-            color_planes: 0,
+            color_planes,
             bits_per_pixel,
             data,
         };
@@ -373,6 +419,7 @@ impl IconDirEntry {
 pub struct IconImage {
     width: u32,
     height: u32,
+    hotspot: Option<(u16, u16)>,
     rgba_data: Vec<u8>,
 }
 
@@ -408,6 +455,7 @@ impl IconImage {
         IconImage {
             width,
             height,
+            hotspot: None,
             rgba_data,
         }
     }
@@ -927,6 +975,16 @@ impl IconImage {
 
     /// Returns the height of the image, in pixels.
     pub fn height(&self) -> u32 { self.height }
+
+    /// Returns the coordinates of the cursor hotspot (pixels right from the
+    /// left edge of the image, and pixels down from the top edge), or `None`
+    /// if this image is an icon rather than a cursor.
+    pub fn cursor_hotspot(&self) -> Option<(u16, u16)> { self.hotspot }
+
+    /// Sets or clears the cursor hotspot coordinates.
+    pub fn set_cursor_hotspot(&mut self, hotspot: Option<(u16, u16)>) {
+        self.hotspot = hotspot;
+    }
 
     /// Returns the RGBA data for this image, in row-major order from top to
     /// bottom.
