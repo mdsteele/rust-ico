@@ -451,13 +451,13 @@ impl IconImage {
         height: u32,
         rgba_data: Vec<u8>,
     ) -> IconImage {
-        if width < MIN_WIDTH || width > MAX_WIDTH {
+        if !(MIN_WIDTH..=MAX_WIDTH).contains(&width) {
             panic!(
                 "Invalid width (was {}, but range is {}-{})",
                 width, MIN_WIDTH, MAX_WIDTH
             );
         }
-        if height < MIN_HEIGHT || height > MAX_HEIGHT {
+        if !(MIN_HEIGHT..=MAX_HEIGHT).contains(&height) {
             panic!(
                 "Invalid height (was {}, but range is {}-{})",
                 height, MIN_HEIGHT, MAX_HEIGHT

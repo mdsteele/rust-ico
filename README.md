@@ -1,9 +1,11 @@
 # rust-ico
 
+[![Build Status](https://github.com/mdsteele/rust-ico/actions/workflows/tests.yml/badge.svg)](https://github.com/mdsteele/rust-ico/actions/workflows/tests.yml)
+[![Crates.io](https://img.shields.io/crates/v/ico.svg)](https://crates.io/crates/ico)
+[![Documentation](https://docs.rs/ico/badge.svg)](https://docs.rs/ico)
+
 A pure Rust library for encoding/decoding
 [ICO image files](https://en.wikipedia.org/wiki/ICO_%28file_format%29).
-
-Documentation: https://docs.rs/ico/
 
 ## Overview
 
