@@ -1,5 +1,5 @@
-extern crate ico;
 extern crate clap;
+extern crate ico;
 
 use clap::{App, Arg, SubCommand};
 use std::fs;
@@ -12,28 +12,38 @@ fn main() {
         .version("0.1")
         .author("Matthew D. Steele <mdsteele@alum.mit.edu>")
         .about("Manipulates ICO files")
-        .subcommand(SubCommand::with_name("create")
-                        .about("Creates an ICO file from PNG files")
-                        .arg(Arg::with_name("output")
-                                 .takes_value(true)
-                                 .value_name("PATH")
-                                 .short("o")
-                                 .long("output")
-                                 .help("Sets output path"))
-                        .arg(Arg::with_name("image").multiple(true)))
-        .subcommand(SubCommand::with_name("extract")
-                        .about("Extracts icons from an ICO file")
-                        .arg(Arg::with_name("output")
-                                 .takes_value(true)
-                                 .value_name("PATH")
-                                 .short("o")
-                                 .long("output")
-                                 .help("Sets output path"))
-                        .arg(Arg::with_name("ico").required(true))
-                        .arg(Arg::with_name("index").required(true)))
-        .subcommand(SubCommand::with_name("list")
-                        .about("Lists icons in an ICO file")
-                        .arg(Arg::with_name("ico").required(true)))
+        .subcommand(
+            SubCommand::with_name("create")
+                .about("Creates an ICO file from PNG files")
+                .arg(
+                    Arg::with_name("output")
+                        .takes_value(true)
+                        .value_name("PATH")
+                        .short("o")
+                        .long("output")
+                        .help("Sets output path"),
+                )
+                .arg(Arg::with_name("image").multiple(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("extract")
+                .about("Extracts icons from an ICO file")
+                .arg(
+                    Arg::with_name("output")
+                        .takes_value(true)
+                        .value_name("PATH")
+                        .short("o")
+                        .long("output")
+                        .help("Sets output path"),
+                )
+                .arg(Arg::with_name("ico").required(true))
+                .arg(Arg::with_name("index").required(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("list")
+                .about("Lists icons in an ICO file")
+                .arg(Arg::with_name("ico").required(true)),
+        )
         .get_matches();
     if let Some(submatches) = matches.subcommand_matches("create") {
         let out_path = if let Some(path) = submatches.value_of("output") {
@@ -84,12 +94,14 @@ fn main() {
             } else {
                 format!("{} bpp", entry.bits_per_pixel())
             };
-            println!("{:5}: {}x{} {}, {}",
-                     index,
-                     entry.width(),
-                     entry.height(),
-                     kind,
-                     suffix);
+            println!(
+                "{:5}: {}x{} {}, {}",
+                index,
+                entry.width(),
+                entry.height(),
+                kind,
+                suffix
+            );
         }
     }
 }

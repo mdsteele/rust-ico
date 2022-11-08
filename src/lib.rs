@@ -60,9 +60,9 @@ extern crate byteorder;
 extern crate png;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::{u16, u8};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::{u16, u8};
 
 // ========================================================================= //
 
@@ -142,26 +142,29 @@ pub struct IconDir {
 impl IconDir {
     /// Creates a new, empty collection of icons/cursors.
     pub fn new(resource_type: ResourceType) -> IconDir {
-        IconDir {
-            restype: resource_type,
-            entries: Vec::new(),
-        }
+        IconDir { restype: resource_type, entries: Vec::new() }
     }
 
     /// Returns the type of resource stored in this collection, either icons or
     /// cursors.
-    pub fn resource_type(&self) -> ResourceType { self.restype }
+    pub fn resource_type(&self) -> ResourceType {
+        self.restype
+    }
 
     /// Returns the entries in this collection.
-    pub fn entries(&self) -> &[IconDirEntry] { &self.entries }
+    pub fn entries(&self) -> &[IconDirEntry] {
+        &self.entries
+    }
 
     /// Adds an entry to the collection.  Panics if `self.resource_type() !=
     /// entry.resource_type()`.
     pub fn add_entry(&mut self, entry: IconDirEntry) {
         if self.resource_type() != entry.resource_type() {
-            panic!("Can't add {:?} IconDirEntry to {:?} IconDir",
-                   entry.resource_type(),
-                   self.resource_type());
+            panic!(
+                "Can't add {:?} IconDirEntry to {:?} IconDir",
+                entry.resource_type(),
+                self.resource_type()
+            );
         }
         self.entries.push(entry);
     }
@@ -170,9 +173,11 @@ impl IconDir {
     pub fn read<R: Read + Seek>(mut reader: R) -> io::Result<IconDir> {
         let reserved = reader.read_u16::<LittleEndian>()?;
         if reserved != 0 {
-            invalid_data!("Invalid reserved field value in ICONDIR \
+            invalid_data!(
+                "Invalid reserved field value in ICONDIR \
                            (was {}, but must be 0)",
-                          reserved);
+                reserved
+            );
         }
         let restype = reader.read_u16::<LittleEndian>()?;
         let restype = match ResourceType::from_number(restype) {
@@ -188,9 +193,11 @@ impl IconDir {
             let num_colors = reader.read_u8()?;
             let reserved = reader.read_u8()?;
             if reserved != 0 {
-                invalid_data!("Invalid reserved field value in ICONDIRENTRY \
+                invalid_data!(
+                    "Invalid reserved field value in ICONDIRENTRY \
                                (was {}, but must be 0)",
-                              reserved);
+                    reserved
+                );
             }
             let color_planes = reader.read_u16::<LittleEndian>()?;
             let bits_per_pixel = reader.read_u16::<LittleEndian>()?;
@@ -220,27 +227,22 @@ impl IconDir {
     /// Writes an ICO or CUR file out to disk.
     pub fn write<W: Write>(&self, mut writer: W) -> io::Result<()> {
         if self.entries.len() > (u16::MAX as usize) {
-            invalid_input!("Too many entries in IconDir \
+            invalid_input!(
+                "Too many entries in IconDir \
                             (was {}, but max is {})",
-                           self.entries.len(),
-                           u16::MAX);
+                self.entries.len(),
+                u16::MAX
+            );
         }
         writer.write_u16::<LittleEndian>(0)?; // reserved
         writer.write_u16::<LittleEndian>(self.restype.number())?;
         writer.write_u16::<LittleEndian>(self.entries.len() as u16)?;
         let mut data_offset = 6 + 16 * (self.entries.len() as u32);
         for entry in self.entries.iter() {
-            let width = if entry.width > 255 {
-                0
-            } else {
-                entry.width as u8
-            };
+            let width = if entry.width > 255 { 0 } else { entry.width as u8 };
             writer.write_u8(width)?;
-            let height = if entry.height > 255 {
-                0
-            } else {
-                entry.height as u8
-            };
+            let height =
+                if entry.height > 255 { 0 } else { entry.height as u8 };
             writer.write_u8(height)?;
             writer.write_u8(entry.num_colors)?;
             writer.write_u8(0)?; // reserved
@@ -275,13 +277,19 @@ pub struct IconDirEntry {
 impl IconDirEntry {
     /// Returns the type of resource stored in this entry, either an icon or a
     /// cursor.
-    pub fn resource_type(&self) -> ResourceType { self.restype }
+    pub fn resource_type(&self) -> ResourceType {
+        self.restype
+    }
 
     /// Returns the width of the image, in pixels.
-    pub fn width(&self) -> u32 { self.width }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
 
     /// Returns the height of the image, in pixels.
-    pub fn height(&self) -> u32 { self.height }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
 
     /// Returns the bits-per-pixel (color depth) of the image.  Returns zero if
     /// `self.resource_type() == ResourceType::Cursor` (since CUR files store
@@ -307,10 +315,14 @@ impl IconDirEntry {
 
     /// Returns true if the image is encoded as a PNG, or false if it is
     /// encoded as a BMP.
-    pub fn is_png(&self) -> bool { self.data.starts_with(PNG_SIGNATURE) }
+    pub fn is_png(&self) -> bool {
+        self.data.starts_with(PNG_SIGNATURE)
+    }
 
     /// Returns the raw, encoded image data.
-    pub fn data(&self) -> &[u8] { &self.data }
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
 
     /// Decodes this entry into an image.  Returns an error if the data is
     /// malformed or can't be decoded.
@@ -321,12 +333,14 @@ impl IconDirEntry {
             IconImage::read_bmp(self.data.as_slice())?
         };
         if image.width != self.width || image.height != self.height {
-            invalid_data!("Encoded image has wrong dimensions \
+            invalid_data!(
+                "Encoded image has wrong dimensions \
                            (was {}x{}, but should be {}x{})",
-                          image.width,
-                          image.height,
-                          self.width,
-                          self.height);
+                image.width,
+                image.height,
+                self.width,
+                self.height
+            );
         }
         image.set_cursor_hotspot(self.cursor_hotspot());
         Ok(image)
@@ -341,8 +355,8 @@ impl IconDirEntry {
         // or for large images, which are cases where PNG's better compression
         // is a big savings.  Otherwise, prefer BMP for its better
         // backwards-compatibility with older ICO consumers.
-        let use_png = stats.has_nonbinary_alpha ||
-            image.width() * image.height() > 64 * 64;
+        let use_png = stats.has_nonbinary_alpha
+            || image.width() * image.height() > 64 * 64;
         if use_png {
             IconDirEntry::encode_as_png_internal(image, &stats)
         } else {
@@ -357,8 +371,10 @@ impl IconDirEntry {
         IconDirEntry::encode_as_bmp_internal(image, &image.compute_stats())
     }
 
-    fn encode_as_bmp_internal(image: &IconImage, stats: &ImageStats)
-                              -> io::Result<IconDirEntry> {
+    fn encode_as_bmp_internal(
+        image: &IconImage,
+        stats: &ImageStats,
+    ) -> io::Result<IconDirEntry> {
         let (num_colors, bits_per_pixel, data) =
             image.write_bmp_internal(stats)?;
         let (color_planes, bits_per_pixel) =
@@ -387,8 +403,10 @@ impl IconDirEntry {
         IconDirEntry::encode_as_png_internal(image, &image.compute_stats())
     }
 
-    fn encode_as_png_internal(image: &IconImage, stats: &ImageStats)
-                              -> io::Result<IconDirEntry> {
+    fn encode_as_png_internal(
+        image: &IconImage,
+        stats: &ImageStats,
+    ) -> io::Result<IconDirEntry> {
         let mut data = Vec::new();
         let bits_per_pixel = image.write_png_internal(stats, &mut data)?;
         let (color_planes, bits_per_pixel) =
@@ -428,35 +446,35 @@ impl IconImage {
     /// `rgba_data` must have `4 * width * height` bytes and be in row-major
     /// order from top to bottom.  Panics if the dimensions are out of range or
     /// if `rgba_data` is the wrong length.
-    pub fn from_rgba_data(width: u32, height: u32, rgba_data: Vec<u8>)
-                          -> IconImage {
+    pub fn from_rgba_data(
+        width: u32,
+        height: u32,
+        rgba_data: Vec<u8>,
+    ) -> IconImage {
         if width < MIN_WIDTH || width > MAX_WIDTH {
-            panic!("Invalid width (was {}, but range is {}-{})",
-                   width,
-                   MIN_WIDTH,
-                   MAX_WIDTH);
+            panic!(
+                "Invalid width (was {}, but range is {}-{})",
+                width, MIN_WIDTH, MAX_WIDTH
+            );
         }
         if height < MIN_HEIGHT || height > MAX_HEIGHT {
-            panic!("Invalid height (was {}, but range is {}-{})",
-                   height,
-                   MIN_HEIGHT,
-                   MAX_HEIGHT);
+            panic!(
+                "Invalid height (was {}, but range is {}-{})",
+                height, MIN_HEIGHT, MAX_HEIGHT
+            );
         }
         let expected_data_len = (4 * width * height) as usize;
         if rgba_data.len() != expected_data_len {
-            panic!("Invalid data length \
+            panic!(
+                "Invalid data length \
                     (was {}, but must be {} for {}x{} image)",
-                   rgba_data.len(),
-                   expected_data_len,
-                   width,
-                   height);
+                rgba_data.len(),
+                expected_data_len,
+                width,
+                height
+            );
         }
-        IconImage {
-            width,
-            height,
-            hotspot: None,
-            rgba_data,
-        }
+        IconImage { width, height, hotspot: None, rgba_data }
     }
 
     /// Decodes an image from a PNG file.  The width and height of the image
@@ -472,20 +490,27 @@ impl IconImage {
         {
             let info = reader.info();
             if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
-                invalid_data!("Invalid PNG width (was {}, but range is {}-{})",
-                            info.width,
-                            MIN_WIDTH,
-                            MAX_WIDTH);
+                invalid_data!(
+                    "Invalid PNG width (was {}, but range is {}-{})",
+                    info.width,
+                    MIN_WIDTH,
+                    MAX_WIDTH
+                );
             }
             if info.height < MIN_HEIGHT || info.height > MAX_HEIGHT {
-                invalid_data!("Invalid PNG height (was {}, but range is {}-{})",
-                            info.height,
-                            MIN_HEIGHT,
-                            MAX_HEIGHT);
+                invalid_data!(
+                    "Invalid PNG height (was {}, but range is {}-{})",
+                    info.height,
+                    MIN_HEIGHT,
+                    MAX_HEIGHT
+                );
             }
             if info.bit_depth != png::BitDepth::Eight {
                 // TODO: Support other bit depths.
-                invalid_data!("Unsupported PNG bit depth: {:?}", info.bit_depth);
+                invalid_data!(
+                    "Unsupported PNG bit depth: {:?}",
+                    info.bit_depth
+                );
             }
         }
         let mut buffer = vec![0u8; reader.output_buffer_size()];
@@ -529,11 +554,17 @@ impl IconImage {
             }
             png::ColorType::Indexed => {
                 // TODO: Implement ColorType::Indexed conversion
-                invalid_data!("Unsupported PNG color type: {:?}",
-                              reader.info().color_type);
+                invalid_data!(
+                    "Unsupported PNG color type: {:?}",
+                    reader.info().color_type
+                );
             }
         };
-        Ok(IconImage::from_rgba_data(reader.info().width, reader.info().height, rgba_data))
+        Ok(IconImage::from_rgba_data(
+            reader.info().width,
+            reader.info().height,
+            rgba_data,
+        ))
     }
 
     /// Encodes the image as a PNG file.
@@ -544,9 +575,11 @@ impl IconImage {
     }
 
     /// Encodes the image as a PNG file and returns the bits-per-pixel.
-    pub(crate) fn write_png_internal<W: Write>(&self, stats: &ImageStats,
-                                               writer: W)
-                                               -> io::Result<u16> {
+    pub(crate) fn write_png_internal<W: Write>(
+        &self,
+        stats: &ImageStats,
+        writer: W,
+    ) -> io::Result<u16> {
         match self.write_png_internal_enc(stats, writer) {
             Ok(bits_per_pixel) => Ok(bits_per_pixel),
             Err(png::EncodingError::IoError(error)) => Err(error),
@@ -564,8 +597,11 @@ impl IconImage {
 
     /// Encodes the image as a PNG file and returns the bits-per-pixel (or the
     /// `png::EncodingError`).
-    fn write_png_internal_enc<W: Write>(&self, stats: &ImageStats, writer: W)
-                                        -> Result<u16, png::EncodingError> {
+    fn write_png_internal_enc<W: Write>(
+        &self,
+        stats: &ImageStats,
+        writer: W,
+    ) -> Result<u16, png::EncodingError> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         // TODO: Detect if we can use grayscale.
         encoder.set_depth(png::BitDepth::Eight);
@@ -598,32 +634,40 @@ impl IconImage {
         // Read the BITMAPINFOHEADER struct:
         let data_size = reader.read_u32::<LittleEndian>()?;
         if data_size != BMP_HEADER_LEN {
-            invalid_data!("Invalid BMP header size (was {}, must be {})",
-                          data_size,
-                          BMP_HEADER_LEN);
+            invalid_data!(
+                "Invalid BMP header size (was {}, must be {})",
+                data_size,
+                BMP_HEADER_LEN
+            );
         }
         let width = reader.read_i32::<LittleEndian>()?;
         if width < (MIN_WIDTH as i32) || width > (MAX_WIDTH as i32) {
-            invalid_data!("Invalid BMP width (was {}, but range is {}-{})",
-                          width,
-                          MIN_WIDTH,
-                          MAX_WIDTH);
+            invalid_data!(
+                "Invalid BMP width (was {}, but range is {}-{})",
+                width,
+                MIN_WIDTH,
+                MAX_WIDTH
+            );
         }
         let width = width as u32;
         let height = reader.read_i32::<LittleEndian>()?;
         if height % 2 != 0 {
             // The height is stored doubled, counting the rows of both the
             // color data and the alpha mask, so it should be divisible by 2.
-            invalid_data!("Invalid height field in BMP header \
+            invalid_data!(
+                "Invalid height field in BMP header \
                            (was {}, but must be divisible by 2)",
-                          height);
+                height
+            );
         }
         let height = height / 2;
         if height < (MIN_HEIGHT as i32) || height > (MAX_HEIGHT as i32) {
-            invalid_data!("Invalid BMP height (was {}, but range is {}-{})",
-                          height,
-                          MIN_HEIGHT,
-                          MAX_HEIGHT);
+            invalid_data!(
+                "Invalid BMP height (was {}, but range is {}-{})",
+                height,
+                MIN_HEIGHT,
+                MAX_HEIGHT
+            );
         }
         let height = height as u32;
         let _planes = reader.read_u16::<LittleEndian>()?;
@@ -644,8 +688,10 @@ impl IconImage {
             24 => BmpDepth::TwentyFour,
             32 => BmpDepth::ThirtyTwo,
             _ => {
-                invalid_data!("Unsupported BMP bits-per-pixel ({})",
-                              bits_per_pixel);
+                invalid_data!(
+                    "Unsupported BMP bits-per-pixel ({})",
+                    bits_per_pixel
+                );
             }
         };
         let num_colors = depth.num_colors();
@@ -676,8 +722,8 @@ impl IconImage {
                         let byte = reader.read_u8()?;
                         for bit in 0..8 {
                             let index = (byte >> (7 - bit)) & 0x1;
-                            let (red, green, blue) = color_table[index as
-                                                                     usize];
+                            let (red, green, blue) =
+                                color_table[index as usize];
                             rgba[start] = red;
                             rgba[start + 1] = green;
                             rgba[start + 2] = blue;
@@ -695,8 +741,8 @@ impl IconImage {
                         let byte = reader.read_u8()?;
                         for nibble in 0..2 {
                             let index = (byte >> (4 * (1 - nibble))) & 0xf;
-                            let (red, green, blue) = color_table[index as
-                                                                     usize];
+                            let (red, green, blue) =
+                                color_table[index as usize];
                             rgba[start] = red;
                             rgba[start + 1] = green;
                             rgba[start + 2] = blue;
@@ -763,8 +809,8 @@ impl IconImage {
         // multiple of four bytes:
         if depth != BmpDepth::ThirtyTwo {
             let row_mask_size = (width + 7) / 8;
-            let row_padding_size = ((row_mask_size + 3) / 4) * 4 -
-                row_mask_size;
+            let row_padding_size =
+                ((row_mask_size + 3) / 4) * 4 - row_mask_size;
             let mut row_padding = vec![0; row_padding_size as usize];
             for row in 0..height {
                 let mut start = (4 * (height - row - 1) * width) as usize;
@@ -791,8 +837,10 @@ impl IconImage {
 
     /// Encodes the image as a BMP and returns the size of the color table, the
     /// bits-per-pixel, and the encoded data.
-    pub(crate) fn write_bmp_internal(&self, stats: &ImageStats)
-                                     -> io::Result<(u8, u16, Vec<u8>)> {
+    pub(crate) fn write_bmp_internal(
+        &self,
+        stats: &ImageStats,
+    ) -> io::Result<(u8, u16, Vec<u8>)> {
         // Determine the most appropriate color depth for encoding this image:
         let width = self.width();
         let height = self.height();
@@ -830,8 +878,9 @@ impl IconImage {
         let mask_row_data_size = (width as usize + 7) / 8;
         let mask_row_size = ((mask_row_data_size + 3) / 4) * 4;
         let mask_row_padding = vec![0u8; mask_row_size - mask_row_data_size];
-        let data_size = BMP_HEADER_LEN as usize + 4 * num_colors +
-            height as usize * (rgb_row_size + mask_row_size);
+        let data_size = BMP_HEADER_LEN as usize
+            + 4 * num_colors
+            + height as usize * (rgb_row_size + mask_row_size);
         let mut data = Vec::<u8>::with_capacity(data_size);
 
         // Write the BITMAPINFOHEADER struct:
@@ -980,15 +1029,21 @@ impl IconImage {
     }
 
     /// Returns the width of the image, in pixels.
-    pub fn width(&self) -> u32 { self.width }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
 
     /// Returns the height of the image, in pixels.
-    pub fn height(&self) -> u32 { self.height }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
 
     /// Returns the coordinates of the cursor hotspot (pixels right from the
     /// left edge of the image, and pixels down from the top edge), or `None`
     /// if this image is an icon rather than a cursor.
-    pub fn cursor_hotspot(&self) -> Option<(u16, u16)> { self.hotspot }
+    pub fn cursor_hotspot(&self) -> Option<(u16, u16)> {
+        self.hotspot
+    }
 
     /// Sets or clears the cursor hotspot coordinates.
     pub fn set_cursor_hotspot(&mut self, hotspot: Option<(u16, u16)>) {
@@ -997,7 +1052,9 @@ impl IconImage {
 
     /// Returns the RGBA data for this image, in row-major order from top to
     /// bottom.
-    pub fn rgba_data(&self) -> &[u8] { &self.rgba_data }
+    pub fn rgba_data(&self) -> &[u8] {
+        &self.rgba_data
+    }
 
     pub(crate) fn compute_stats(&self) -> ImageStats {
         let mut colors = BTreeSet::<(u8, u8, u8)>::new();
@@ -1023,11 +1080,7 @@ impl IconImage {
         ImageStats {
             has_alpha,
             has_nonbinary_alpha,
-            colors: if colors.len() <= 256 {
-                Some(colors)
-            } else {
-                None
-            },
+            colors: if colors.len() <= 256 { Some(colors) } else { None },
         }
     }
 }
@@ -1087,8 +1140,10 @@ mod tests {
     fn resource_type_round_trip() {
         let restypes = &[ResourceType::Icon, ResourceType::Cursor];
         for &restype in restypes.iter() {
-            assert_eq!(ResourceType::from_number(restype.number()),
-                       Some(restype));
+            assert_eq!(
+                ResourceType::from_number(restype.number()),
+                Some(restype)
+            );
         }
     }
 
