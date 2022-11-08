@@ -60,7 +60,6 @@ extern crate byteorder;
 extern crate png;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use png::HasParameters;
 use std::{u16, u8};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -466,34 +465,37 @@ impl IconImage {
     /// is out of range.
     pub fn read_png<R: Read>(reader: R) -> io::Result<IconImage> {
         let decoder = png::Decoder::new(reader);
-        let (info, mut reader) = match decoder.read_info() {
+        let mut reader = match decoder.read_info() {
             Ok(tuple) => tuple,
             Err(error) => invalid_data!("Malformed PNG data: {}", error),
         };
-        if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
-            invalid_data!("Invalid PNG width (was {}, but range is {}-{})",
-                          info.width,
-                          MIN_WIDTH,
-                          MAX_WIDTH);
+        {
+            let info = reader.info();
+            if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
+                invalid_data!("Invalid PNG width (was {}, but range is {}-{})",
+                            info.width,
+                            MIN_WIDTH,
+                            MAX_WIDTH);
+            }
+            if info.height < MIN_HEIGHT || info.height > MAX_HEIGHT {
+                invalid_data!("Invalid PNG height (was {}, but range is {}-{})",
+                            info.height,
+                            MIN_HEIGHT,
+                            MAX_HEIGHT);
+            }
+            if info.bit_depth != png::BitDepth::Eight {
+                // TODO: Support other bit depths.
+                invalid_data!("Unsupported PNG bit depth: {:?}", info.bit_depth);
+            }
         }
-        if info.height < MIN_HEIGHT || info.height > MAX_HEIGHT {
-            invalid_data!("Invalid PNG height (was {}, but range is {}-{})",
-                          info.height,
-                          MIN_HEIGHT,
-                          MAX_HEIGHT);
-        }
-        if info.bit_depth != png::BitDepth::Eight {
-            // TODO: Support other bit depths.
-            invalid_data!("Unsupported PNG bit depth: {:?}", info.bit_depth);
-        }
-        let mut buffer = vec![0u8; info.buffer_size()];
+        let mut buffer = vec![0u8; reader.output_buffer_size()];
         match reader.next_frame(&mut buffer) {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => invalid_data!("Malformed PNG data: {}", error),
         }
-        let rgba_data = match info.color_type {
-            png::ColorType::RGBA => buffer,
-            png::ColorType::RGB => {
+        let rgba_data = match reader.info().color_type {
+            png::ColorType::Rgba => buffer,
+            png::ColorType::Rgb => {
                 let num_pixels = buffer.len() / 3;
                 let mut rgba = Vec::with_capacity(num_pixels * 4);
                 for i in 0..num_pixels {
@@ -528,10 +530,10 @@ impl IconImage {
             png::ColorType::Indexed => {
                 // TODO: Implement ColorType::Indexed conversion
                 invalid_data!("Unsupported PNG color type: {:?}",
-                              info.color_type);
+                              reader.info().color_type);
             }
         };
-        Ok(IconImage::from_rgba_data(info.width, info.height, rgba_data))
+        Ok(IconImage::from_rgba_data(reader.info().width, reader.info().height, rgba_data))
     }
 
     /// Encodes the image as a PNG file.
@@ -547,9 +549,15 @@ impl IconImage {
                                                -> io::Result<u16> {
         match self.write_png_internal_enc(stats, writer) {
             Ok(bits_per_pixel) => Ok(bits_per_pixel),
-            Err(png::EncodingError::IoError(error)) => return Err(error),
+            Err(png::EncodingError::IoError(error)) => Err(error),
             Err(png::EncodingError::Format(error)) => {
                 invalid_input!("PNG format error: {}", error);
+            }
+            Err(png::EncodingError::LimitsExceeded) => {
+                invalid_input!("PNG limits exceeded");
+            }
+            Err(png::EncodingError::Parameter(error)) => {
+                invalid_input!("PNG parameter error: {}", error);
             }
         }
     }
@@ -560,10 +568,11 @@ impl IconImage {
                                         -> Result<u16, png::EncodingError> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         // TODO: Detect if we can use grayscale.
+        encoder.set_depth(png::BitDepth::Eight);
         if stats.has_alpha {
-            encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
+            encoder.set_color(png::ColorType::Rgba);
         } else {
-            encoder.set(png::ColorType::RGB).set(png::BitDepth::Eight);
+            encoder.set_color(png::ColorType::Rgb);
         }
         let mut writer = encoder.write_header()?;
         if stats.has_alpha {
