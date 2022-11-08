@@ -60,7 +60,6 @@ extern crate byteorder;
 extern crate png;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use png::HasParameters;
 use std::{u16, u8};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -560,10 +559,11 @@ impl IconImage {
                                         -> Result<u16, png::EncodingError> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         // TODO: Detect if we can use grayscale.
+        encoder.set_depth(png::BitDepth::Eight);
         if stats.has_alpha {
-            encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
+            encoder.set_color(png::ColorType::RGBA);
         } else {
-            encoder.set(png::ColorType::RGB).set(png::BitDepth::Eight);
+            encoder.set_color(png::ColorType::RGB);
         }
         let mut writer = encoder.write_header()?;
         if stats.has_alpha {
