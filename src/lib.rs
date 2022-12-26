@@ -56,13 +56,9 @@
 
 #![warn(missing_docs)]
 
-extern crate byteorder;
-extern crate png;
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::{u16, u8};
 
 // ========================================================================= //
 

@@ -1,6 +1,3 @@
-extern crate clap;
-extern crate ico;
-
 use clap::{App, Arg, SubCommand};
 use std::fs;
 use std::path::PathBuf;

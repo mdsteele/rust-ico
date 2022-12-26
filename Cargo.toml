@@ -1,6 +1,7 @@
 [package]
 name = "ico"
 version = "0.2.0"
+edition = "2021"
 authors = ["Matthew D. Steele <mdsteele@alum.mit.edu>"]
 description = "A library for encoding/decoding ICO image files"
 repository = "https://github.com/mdsteele/rust-ico"
