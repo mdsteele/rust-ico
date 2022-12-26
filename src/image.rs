@@ -610,7 +610,7 @@ impl IconImage {
         }
 
         debug_assert_eq!(data.len(), data_size);
-        Ok((num_colors as u8, bits_per_pixel as u16, data))
+        Ok((num_colors as u8, bits_per_pixel, data))
     }
 
     /// Returns the width of the image, in pixels.
