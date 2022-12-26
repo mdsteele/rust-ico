@@ -4,9 +4,9 @@
 //! # Overview
 //!
 //! An ICO file (.ico) stores a collection of small images of different sizes
-//! and color depths (up to 256x256 pixels each).  Individial images within the
-//! file can be encoded in either BMP or PNG format.  ICO files are typically
-//! used for website favicons and for Windows application icons.
+//! and color depths.  Individial images within the file can be encoded in
+//! either BMP or PNG format.  ICO files are typically used for website
+//! favicons and for Windows application icons.
 //!
 //! CUR files (.cur), which store Windows cursor images, use the same file
 //! format as ICO files, except that each image also comes with (x, y)
@@ -60,7 +60,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
-// ========================================================================= //
+//===========================================================================//
 
 // The size of a BITMAPINFOHEADER struct, in bytes.
 const BMP_HEADER_LEN: u32 = 40;
@@ -70,11 +70,9 @@ const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G'];
 
 // Size limits for images in an ICO file:
 const MIN_WIDTH: u32 = 1;
-const MAX_WIDTH: u32 = 256;
 const MIN_HEIGHT: u32 = 1;
-const MAX_HEIGHT: u32 = 256;
 
-// ========================================================================= //
+//===========================================================================//
 
 macro_rules! invalid_data {
     ($e:expr) => {
@@ -98,7 +96,7 @@ macro_rules! invalid_input {
     };
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// The type of resource stored in an ICO/CUR file.
@@ -126,7 +124,7 @@ impl ResourceType {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 /// A collection of images; the contents of a single ICO or CUR file.
 #[derive(Clone)]
@@ -171,7 +169,7 @@ impl IconDir {
         if reserved != 0 {
             invalid_data!(
                 "Invalid reserved field value in ICONDIR \
-                           (was {}, but must be 0)",
+                 (was {}, but must be 0)",
                 reserved
             );
         }
@@ -184,14 +182,14 @@ impl IconDir {
         let mut entries = Vec::<IconDirEntry>::with_capacity(num_entries);
         let mut spans = Vec::<(u32, u32)>::with_capacity(num_entries);
         for _ in 0..num_entries {
-            let width = reader.read_u8()?;
-            let height = reader.read_u8()?;
+            let width_byte = reader.read_u8()?;
+            let height_byte = reader.read_u8()?;
             let num_colors = reader.read_u8()?;
             let reserved = reader.read_u8()?;
             if reserved != 0 {
                 invalid_data!(
                     "Invalid reserved field value in ICONDIRENTRY \
-                               (was {}, but must be 0)",
+                     (was {}, but must be 0)",
                     reserved
                 );
             }
@@ -199,11 +197,27 @@ impl IconDir {
             let bits_per_pixel = reader.read_u16::<LittleEndian>()?;
             let data_size = reader.read_u32::<LittleEndian>()?;
             let data_offset = reader.read_u32::<LittleEndian>()?;
+            // The ICONDIRENTRY struct uses only one byte each for width and
+            // height.  In older versions of Windows, a byte of zero indicated
+            // a size of exactly 256, but since Windows Vista a byte of zero is
+            // used for any size >= 256, with the actual size coming from the
+            // BMP or PNG data.
+            //
+            // We initialize the IconDirEntry's width/height fields based on
+            // these bytes, treating 0 as 256.  Later on we will replace these
+            // values with the actual width/height from the image data;
+            // however, in the event that the image data turns out to be
+            // malformed, we will use these initial guesses for the image
+            // metadata, so that the user can still parse the rest of the ICO
+            // file and at least see what size this image was intended to be.
+            let width = if width_byte == 0 { 256 } else { width_byte as u32 };
+            let height =
+                if height_byte == 0 { 256 } else { height_byte as u32 };
             spans.push((data_offset, data_size));
             let entry = IconDirEntry {
                 restype,
-                width: if width == 0 { 256 } else { width as u32 },
-                height: if height == 0 { 256 } else { height as u32 },
+                width,
+                height,
                 num_colors,
                 color_planes,
                 bits_per_pixel,
@@ -217,6 +231,18 @@ impl IconDir {
             reader.read_exact(&mut data)?;
             entries[index].data = data;
         }
+        // Update each IconDirEntry's width/height fields with the actual
+        // width/height of its image data.
+        for entry in entries.iter_mut() {
+            // Ignore any errors here.  If this entry's image data is
+            // malformed, defer errors until the user actually tries to decode
+            // that image.
+            if let Ok((width, height)) = entry.decode_size() {
+                entry.width = width;
+                entry.height = height;
+                // TODO: Also update entry's bits-per-pixel.
+            }
+        }
         Ok(IconDir { restype, entries })
     }
 
@@ -224,8 +250,7 @@ impl IconDir {
     pub fn write<W: Write>(&self, mut writer: W) -> io::Result<()> {
         if self.entries.len() > (u16::MAX as usize) {
             invalid_input!(
-                "Too many entries in IconDir \
-                            (was {}, but max is {})",
+                "Too many entries in IconDir (was {}, but max is {})",
                 self.entries.len(),
                 u16::MAX
             );
@@ -235,6 +260,7 @@ impl IconDir {
         writer.write_u16::<LittleEndian>(self.entries.len() as u16)?;
         let mut data_offset = 6 + 16 * (self.entries.len() as u32);
         for entry in self.entries.iter() {
+            // A width/height byte of zero indicates a size of 256 or more.
             let width = if entry.width > 255 { 0 } else { entry.width as u8 };
             writer.write_u8(width)?;
             let height =
@@ -256,7 +282,7 @@ impl IconDir {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 /// One entry in an ICO or CUR file; a single icon or cursor.
 #[derive(Clone)]
@@ -320,6 +346,16 @@ impl IconDirEntry {
         &self.data
     }
 
+    /// Decodes just enough of the raw image data to determine its size.
+    pub(crate) fn decode_size(&mut self) -> io::Result<(u32, u32)> {
+        if self.is_png() {
+            let png_reader = IconImage::read_png_info(self.data.as_slice())?;
+            Ok((png_reader.info().width, png_reader.info().height))
+        } else {
+            IconImage::read_bmp_size(&mut self.data.as_slice())
+        }
+    }
+
     /// Decodes this entry into an image.  Returns an error if the data is
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
@@ -331,7 +367,7 @@ impl IconDirEntry {
         if image.width != self.width || image.height != self.height {
             invalid_data!(
                 "Encoded image has wrong dimensions \
-                           (was {}x{}, but should be {}x{})",
+                 (was {}x{}, but should be {}x{})",
                 image.width,
                 image.height,
                 self.width,
@@ -425,7 +461,7 @@ impl IconDirEntry {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 /// A decoded image.
 #[derive(Clone)]
@@ -438,32 +474,31 @@ pub struct IconImage {
 
 impl IconImage {
     /// Creates a new image with the given dimensions and RGBA data.  The
-    /// `width` and `height` must each be between 1 and 256 inclusive, and
-    /// `rgba_data` must have `4 * width * height` bytes and be in row-major
-    /// order from top to bottom.  Panics if the dimensions are out of range or
-    /// if `rgba_data` is the wrong length.
+    /// `width` and `height` must be nonzero, and `rgba_data` must have `4 *
+    /// width * height` bytes and be in row-major order from top to bottom.
+    /// Panics if the dimensions are out of range or if `rgba_data` is the
+    /// wrong length.
     pub fn from_rgba_data(
         width: u32,
         height: u32,
         rgba_data: Vec<u8>,
     ) -> IconImage {
-        if !(MIN_WIDTH..=MAX_WIDTH).contains(&width) {
+        if width < MIN_WIDTH {
             panic!(
-                "Invalid width (was {}, but range is {}-{})",
-                width, MIN_WIDTH, MAX_WIDTH
+                "Invalid width (was {}, but must be at least {})",
+                width, MIN_WIDTH
             );
         }
-        if !(MIN_HEIGHT..=MAX_HEIGHT).contains(&height) {
+        if height < MIN_HEIGHT {
             panic!(
-                "Invalid height (was {}, but range is {}-{})",
-                height, MIN_HEIGHT, MAX_HEIGHT
+                "Invalid height (was {}, but must be at least {})",
+                height, MIN_HEIGHT
             );
         }
-        let expected_data_len = (4 * width * height) as usize;
-        if rgba_data.len() != expected_data_len {
+        let expected_data_len = (width as u64) * (height as u64) * 4;
+        if (rgba_data.len() as u64) != expected_data_len {
             panic!(
-                "Invalid data length \
-                    (was {}, but must be {} for {}x{} image)",
+                "Invalid data length (was {}, but must be {} for {}x{} image)",
                 rgba_data.len(),
                 expected_data_len,
                 width,
@@ -473,32 +508,28 @@ impl IconImage {
         IconImage { width, height, hotspot: None, rgba_data }
     }
 
-    /// Decodes an image from a PNG file.  The width and height of the image
-    /// must each be between 1 and 256 inclusive.  Returns an error if the PNG
-    /// data is malformed or can't be decoded, or if the size of the PNG image
-    /// is out of range.
-    pub fn read_png<R: Read>(reader: R) -> io::Result<IconImage> {
+    pub(crate) fn read_png_info<R: Read>(
+        reader: R,
+    ) -> io::Result<png::Reader<R>> {
         let decoder = png::Decoder::new(reader);
-        let mut reader = match decoder.read_info() {
-            Ok(tuple) => tuple,
+        let png_reader = match decoder.read_info() {
+            Ok(png_reader) => png_reader,
             Err(error) => invalid_data!("Malformed PNG data: {}", error),
         };
         {
-            let info = reader.info();
-            if info.width < MIN_WIDTH || info.width > MAX_WIDTH {
+            let info = png_reader.info();
+            if info.width < MIN_WIDTH {
                 invalid_data!(
-                    "Invalid PNG width (was {}, but range is {}-{})",
+                    "Invalid PNG width (was {}, but must be at least {}",
                     info.width,
-                    MIN_WIDTH,
-                    MAX_WIDTH
+                    MIN_WIDTH
                 );
             }
-            if info.height < MIN_HEIGHT || info.height > MAX_HEIGHT {
+            if info.height < MIN_HEIGHT {
                 invalid_data!(
-                    "Invalid PNG height (was {}, but range is {}-{})",
+                    "Invalid PNG height (was {}, but must be at least {})",
                     info.height,
-                    MIN_HEIGHT,
-                    MAX_HEIGHT
+                    MIN_HEIGHT
                 );
             }
             if info.bit_depth != png::BitDepth::Eight {
@@ -509,12 +540,19 @@ impl IconImage {
                 );
             }
         }
-        let mut buffer = vec![0u8; reader.output_buffer_size()];
-        match reader.next_frame(&mut buffer) {
+        Ok(png_reader)
+    }
+
+    /// Decodes an image from a PNG file.  Returns an error if the PNG data is
+    /// malformed or can't be decoded.
+    pub fn read_png<R: Read>(reader: R) -> io::Result<IconImage> {
+        let mut png_reader = IconImage::read_png_info(reader)?;
+        let mut buffer = vec![0u8; png_reader.output_buffer_size()];
+        match png_reader.next_frame(&mut buffer) {
             Ok(_) => {}
             Err(error) => invalid_data!("Malformed PNG data: {}", error),
         }
-        let rgba_data = match reader.info().color_type {
+        let rgba_data = match png_reader.info().color_type {
             png::ColorType::Rgba => buffer,
             png::ColorType::Rgb => {
                 let num_pixels = buffer.len() / 3;
@@ -552,13 +590,13 @@ impl IconImage {
                 // TODO: Implement ColorType::Indexed conversion
                 invalid_data!(
                     "Unsupported PNG color type: {:?}",
-                    reader.info().color_type
+                    png_reader.info().color_type
                 );
             }
         };
         Ok(IconImage::from_rgba_data(
-            reader.info().width,
-            reader.info().height,
+            png_reader.info().width,
+            png_reader.info().height,
             rgba_data,
         ))
     }
@@ -626,8 +664,9 @@ impl IconImage {
         }
     }
 
-    pub(crate) fn read_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
-        // Read the BITMAPINFOHEADER struct:
+    pub(crate) fn read_bmp_size<R: Read>(
+        reader: &mut R,
+    ) -> io::Result<(u32, u32)> {
         let data_size = reader.read_u32::<LittleEndian>()?;
         if data_size != BMP_HEADER_LEN {
             invalid_data!(
@@ -637,12 +676,11 @@ impl IconImage {
             );
         }
         let width = reader.read_i32::<LittleEndian>()?;
-        if width < (MIN_WIDTH as i32) || width > (MAX_WIDTH as i32) {
+        if width < (MIN_WIDTH as i32) {
             invalid_data!(
-                "Invalid BMP width (was {}, but range is {}-{})",
+                "Invalid BMP width (was {}, but must be at least {})",
                 width,
-                MIN_WIDTH,
-                MAX_WIDTH
+                MIN_WIDTH
             );
         }
         let width = width as u32;
@@ -652,20 +690,25 @@ impl IconImage {
             // color data and the alpha mask, so it should be divisible by 2.
             invalid_data!(
                 "Invalid height field in BMP header \
-                           (was {}, but must be divisible by 2)",
+                 (was {}, but must be divisible by 2)",
                 height
             );
         }
         let height = height / 2;
-        if height < (MIN_HEIGHT as i32) || height > (MAX_HEIGHT as i32) {
+        if height < (MIN_HEIGHT as i32) {
             invalid_data!(
-                "Invalid BMP height (was {}, but range is {}-{})",
+                "Invalid BMP height (was {}, but must be at least {})",
                 height,
-                MIN_HEIGHT,
-                MAX_HEIGHT
+                MIN_HEIGHT
             );
         }
         let height = height as u32;
+        Ok((width, height))
+    }
+
+    pub(crate) fn read_bmp<R: Read>(mut reader: R) -> io::Result<IconImage> {
+        // Read the BITMAPINFOHEADER struct:
+        let (width, height) = IconImage::read_bmp_size(&mut reader)?;
         let _planes = reader.read_u16::<LittleEndian>()?;
         let bits_per_pixel = reader.read_u16::<LittleEndian>()? as u32;
         let _compression = reader.read_u32::<LittleEndian>()?;
@@ -1081,7 +1124,7 @@ impl IconImage {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 struct ImageStats {
     /// True if the image uses transparency.
@@ -1125,7 +1168,7 @@ impl BmpDepth {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
 
 #[cfg(test)]
 mod tests {
@@ -1319,4 +1362,4 @@ mod tests {
     }
 }
 
-// ========================================================================= //
+//===========================================================================//
