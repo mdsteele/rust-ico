@@ -640,6 +640,12 @@ impl IconImage {
     pub fn rgba_data(&self) -> &[u8] {
         &self.rgba_data
     }
+        
+    /// Consumes this `IconImage` and returns the raw RGBA data in row-major order
+    /// as an owned `Vec<u8>`
+    pub fn take_rgba_data(self) -> Vec<u8> {
+        self.rgba_data
+    }
 
     pub(crate) fn compute_stats(&self) -> ImageStats {
         let mut colors = BTreeSet::<(u8, u8, u8)>::new();
