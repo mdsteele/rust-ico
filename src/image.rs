@@ -643,7 +643,7 @@ impl IconImage {
         
     /// Consumes this `IconImage` and returns the raw RGBA data in row-major order
     /// as an owned `Vec<u8>`
-    pub fn take_rgba_data(self) -> Vec<u8> {
+    pub fn into_rgba_data(self) -> Vec<u8> {
         self.rgba_data
     }
 
