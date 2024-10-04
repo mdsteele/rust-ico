@@ -132,7 +132,7 @@ impl IconImage {
                     rgba.push(value);
                     rgba.push(value);
                     rgba.push(value);
-                    rgba.push(std::u8::MAX);
+                    rgba.push(u8::MAX);
                 }
                 rgba
             }
@@ -292,11 +292,11 @@ impl IconImage {
 
         // Read in the color data, which is stored row by row, starting from
         // the *bottom* row:
-        let num_pixels;
-        match width.checked_mul(height) {
-            Some(num) => num_pixels = num as usize,
+
+        let num_pixels = match width.checked_mul(height) {
+            Some(num) => num as usize,
             None => invalid_data!("Width * Height is too large"),
-        }
+        };
         let mut rgba = vec![u8::MAX; num_pixels * 4];
         let row_data_size = (width * (bits_per_pixel as u32) + 7) / 8;
         let row_padding_size = ((row_data_size + 3) / 4) * 4 - row_data_size;
