@@ -1,6 +1,10 @@
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 //===========================================================================//
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 /// The type of resource stored in an ICO/CUR file.
 pub enum ResourceType {
     /// Plain images (ICO files)

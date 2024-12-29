@@ -1,6 +1,8 @@
 use crate::image::{IconImage, ImageStats};
 use crate::restype::ResourceType;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 //===========================================================================//
@@ -11,7 +13,8 @@ const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G'];
 //===========================================================================//
 
 /// A collection of images; the contents of a single ICO or CUR file.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct IconDir {
     restype: ResourceType,
     entries: Vec<IconDirEntry>,
@@ -169,7 +172,8 @@ impl IconDir {
 //===========================================================================//
 
 /// One entry in an ICO or CUR file; a single icon or cursor.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct IconDirEntry {
     restype: ResourceType,
     width: u32,
