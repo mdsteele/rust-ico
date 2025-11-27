@@ -24,6 +24,31 @@ pub struct IconImage {
 }
 
 impl IconImage {
+    /// Creates a new image with the given dimensions. The `width` and `height`
+    /// must be nonzero. The image data is initialized to zeros. Panics if the
+    /// dimensions are out of range.
+    pub fn new(width: u32, height: u32) -> IconImage {
+        if width < MIN_WIDTH {
+            panic!(
+                "Invalid width (was {}, but must be at least {})",
+                width, MIN_WIDTH
+            );
+        }
+        if height < MIN_HEIGHT {
+            panic!(
+                "Invalid height (was {}, but must be at least {})",
+                height, MIN_HEIGHT
+            );
+        }
+
+        IconImage {
+            width,
+            height,
+            hotspot: None,
+            rgba_data: vec![0u8; (width as usize) * (height as usize) * 4],
+        }
+    }
+
     /// Creates a new image with the given dimensions and RGBA data.  The
     /// `width` and `height` must be nonzero, and `rgba_data` must have `4 *
     /// width * height` bytes and be in row-major order from top to bottom.
@@ -639,10 +664,16 @@ impl IconImage {
         self.hotspot = hotspot;
     }
 
-    /// Returns the RGBA data for this image, in row-major order from top to
-    /// bottom.
+    /// Returns a slice to the RGBA data for this image, in row-major order
+    /// from top to bottom.
     pub fn rgba_data(&self) -> &[u8] {
         &self.rgba_data
+    }
+
+    /// Returns a mutable slice to the RGBA data for this image, in row-major
+    /// order from top to bottom.
+    pub fn rgba_data_mut(&mut self) -> &mut [u8] {
+        &mut self.rgba_data
     }
 
     pub(crate) fn compute_stats(&self) -> ImageStats {
