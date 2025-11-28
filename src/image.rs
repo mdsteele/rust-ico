@@ -669,6 +669,12 @@ impl IconImage {
     pub fn rgba_data(&self) -> &[u8] {
         &self.rgba_data
     }
+        
+    /// Consumes this `IconImage` and returns the raw RGBA data in row-major order
+    /// as an owned `Vec<u8>`
+    pub fn into_rgba_data(self) -> Vec<u8> {
+        self.rgba_data
+    }
 
     /// Returns a mutable slice to the RGBA data for this image, in row-major
     /// order from top to bottom.
