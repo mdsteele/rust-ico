@@ -15,7 +15,7 @@ const MAX_PIXELS: u64 = 8192 * 8192;
 //===========================================================================//
 
 /// A decoded image.
-#[derive(克隆)]
+#[derive(Clone)]
 pub struct IconImage {
     width: u32,
     height: u32,
