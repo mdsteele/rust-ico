@@ -326,7 +326,13 @@ impl IconImage {
          //Check image size limits to prevent excessive memory allocation
         if num_pixels as u64 > MAX_PIXELS {
             invalid_data!(
-                "Image dimensions too large ({}x{} = {} pixels, max is {})",width,height,num_pixels,MAX_PIXELS);}
+                "Image dimensions too large ({}x{} = {} pixels, max is {})",
+                width,
+                height,
+                num_pixels,
+                MAX_PIXELS
+            );
+        }
 
         let mut rgba = vec![u8::MAX; num_pixels * 4];
         let row_data_size = (width * (bits_per_pixel as u32)).div_ceil(8);
