@@ -93,7 +93,11 @@ impl IconDir {
             // Reject invalid ICO entries whose data range exceeds the actual file size.
             if data_offset as u64 + data_size as u64 > file_len {
                invalid_data!(
-                  "Image data span (offset={}, size={}) exceeds file length ({})",data_offset,data_size,file_len);
+                  "Image data span (offset={}, size={}) exceeds file length ({})",
+                   data_offset,
+                   data_size,
+                   file_len
+               );
             }
             // The ICONDIRENTRY struct uses only one byte each for width and
             // height.  In older versions of Windows, a byte of zero indicated
