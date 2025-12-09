@@ -56,7 +56,6 @@ impl IconDir {
         // Get total file length so we can validate size fields.
         let file_len = reader.seek(SeekFrom::End(0))?;
         reader.seek(SeekFrom::Start(0))?;
-        
         let reserved = reader.read_u16::<LittleEndian>()?;
         if reserved != 0 {
             invalid_data!(
