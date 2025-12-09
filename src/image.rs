@@ -323,7 +323,7 @@ impl IconImage {
             None => invalid_data!("Width * Height is too large"),
         };
 
-         //Check image size limits to prevent excessive memory allocation
+         // Check image size limits to prevent excessive memory allocation
         if num_pixels as u64 > MAX_PIXELS {
             invalid_data!(
                 "Image dimensions too large ({}x{} = {} pixels, max is {})",
