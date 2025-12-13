@@ -52,7 +52,6 @@ impl IconDir {
 
     /// Reads an ICO or CUR file into memory.
     pub fn read<R: Read + Seek>(mut reader: R) -> io::Result<IconDir> {
-
         // Get total file length so we can validate size fields.
         let file_len = reader.seek(SeekFrom::End(0))?;
         reader.seek(SeekFrom::Start(0))?;
