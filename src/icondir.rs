@@ -52,6 +52,9 @@ impl IconDir {
 
     /// Reads an ICO or CUR file into memory.
     pub fn read<R: Read + Seek>(mut reader: R) -> io::Result<IconDir> {
+        // Get total file length so we can validate size fields.
+        let file_len = reader.seek(SeekFrom::End(0))?;
+        reader.seek(SeekFrom::Start(0))?;
         let reserved = reader.read_u16::<LittleEndian>()?;
         if reserved != 0 {
             invalid_data!(
@@ -84,6 +87,16 @@ impl IconDir {
             let bits_per_pixel = reader.read_u16::<LittleEndian>()?;
             let data_size = reader.read_u32::<LittleEndian>()?;
             let data_offset = reader.read_u32::<LittleEndian>()?;
+
+            // Reject invalid ICO entries whose data range exceeds the actual file size.
+            if data_offset as u64 + data_size as u64 > file_len {
+                invalid_data!(
+                    "Image data span (offset={}, size={}) exceeds file length ({})",
+                    data_offset,
+                    data_size,
+                    file_len
+                );
+            }
             // The ICONDIRENTRY struct uses only one byte each for width and
             // height.  In older versions of Windows, a byte of zero indicated
             // a size of exactly 256, but since Windows Vista a byte of zero is

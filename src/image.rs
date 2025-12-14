@@ -11,7 +11,7 @@ const BMP_HEADER_LEN: u32 = 40;
 // Size limits for images in an ICO file:
 const MIN_WIDTH: u32 = 1;
 const MIN_HEIGHT: u32 = 1;
-
+const MAX_PIXELS: u64 = 8192 * 8192;
 //===========================================================================//
 
 /// A decoded image.
@@ -322,6 +322,18 @@ impl IconImage {
             Some(num) => num as usize,
             None => invalid_data!("Width * Height is too large"),
         };
+
+        // Check image size limits to prevent excessive memory allocation
+        if num_pixels as u64 > MAX_PIXELS {
+            invalid_data!(
+                "Image dimensions too large ({}x{} = {} pixels, max is {})",
+                width,
+                height,
+                num_pixels,
+                MAX_PIXELS
+            );
+        }
+
         let mut rgba = vec![u8::MAX; num_pixels * 4];
         let row_data_size = (width * (bits_per_pixel as u32)).div_ceil(8);
         let row_padding_size = row_data_size.div_ceil(4) * 4 - row_data_size;
