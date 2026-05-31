@@ -250,7 +250,9 @@ impl IconDirEntry {
     /// Decodes just enough of the raw image data to determine its size.
     pub(crate) fn decode_size(&mut self) -> io::Result<(u32, u32)> {
         if self.is_png() {
-            let png_reader = IconImage::read_png_info(self.data.as_slice())?;
+            let png_reader = IconImage::read_png_info(io::Cursor::new(
+                self.data.as_slice(),
+            ))?;
             Ok((png_reader.info().width, png_reader.info().height))
         } else {
             IconImage::read_bmp_size(&mut self.data.as_slice())
@@ -261,7 +263,7 @@ impl IconDirEntry {
     /// malformed or can't be decoded.
     pub fn decode(&self) -> io::Result<IconImage> {
         let mut image = if self.is_png() {
-            IconImage::read_png(self.data.as_slice())?
+            IconImage::read_png(io::Cursor::new(self.data.as_slice()))?
         } else {
             IconImage::read_bmp(self.data.as_slice())?
         };

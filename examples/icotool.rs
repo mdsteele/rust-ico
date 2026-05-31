@@ -59,6 +59,7 @@ fn main() {
             for path in paths {
                 println!("Adding {:?}", path);
                 let file = fs::File::open(path).unwrap();
+                let file = std::io::BufReader::new(file);
                 let image = ico::IconImage::read_png(file).unwrap();
                 icondir.add_entry(ico::IconDirEntry::encode(&image).unwrap());
             }

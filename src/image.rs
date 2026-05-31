@@ -1,7 +1,7 @@
 use crate::bmpdepth::BmpDepth;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::{BTreeSet, HashMap};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Seek, Write};
 
 //===========================================================================//
 
@@ -84,7 +84,7 @@ impl IconImage {
         IconImage { width, height, hotspot: None, rgba_data }
     }
 
-    pub(crate) fn read_png_info<R: Read>(
+    pub(crate) fn read_png_info<R: BufRead + Seek>(
         reader: R,
     ) -> io::Result<png::Reader<R>> {
         let decoder = png::Decoder::new(reader);
@@ -120,9 +120,13 @@ impl IconImage {
 
     /// Decodes an image from a PNG file.  Returns an error if the PNG data is
     /// malformed or can't be decoded.
-    pub fn read_png<R: Read>(reader: R) -> io::Result<IconImage> {
+    pub fn read_png<R: BufRead + Seek>(reader: R) -> io::Result<IconImage> {
         let mut png_reader = IconImage::read_png_info(reader)?;
-        let mut buffer = vec![0u8; png_reader.output_buffer_size()];
+        let buffer_len = match png_reader.output_buffer_size() {
+            Some(l) => l,
+            None => invalid_data!("PNG data exceeds isize::MAX"),
+        };
+        let mut buffer = vec![0u8; buffer_len];
         match png_reader.next_frame(&mut buffer) {
             Ok(_) => {}
             Err(error) => invalid_data!("Malformed PNG data: {}", error),
