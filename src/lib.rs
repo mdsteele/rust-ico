@@ -42,6 +42,7 @@
 //! let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
 //! // Read a PNG file from disk and add it to the collection:
 //! let file = std::fs::File::open("path/to/image.png").unwrap();
+//! let file = std::io::BufReader::new(file);
 //! let image = ico::IconImage::read_png(file).unwrap();
 //! icon_dir.add_entry(ico::IconDirEntry::encode(&image).unwrap());
 //! // Alternatively, you can create an IconImage from raw RGBA pixel data
