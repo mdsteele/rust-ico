@@ -1,6 +1,7 @@
 extern crate ico;
 
 use std::fs::File;
+use std::io::Cursor;
 use std::path::PathBuf;
 
 //===========================================================================//
@@ -26,6 +27,34 @@ fn decode_litexl_icons() {
     compare_ico_and_png("litexl.ico", 4, "litexl48x48.png");
     compare_ico_and_png("litexl.ico", 5, "litexl32x32.png");
     compare_ico_and_png("litexl.ico", 6, "litexl16x16.png");
+}
+
+#[test]
+fn decode_nonzero_colors_used() {
+    // ICO with biClrUsed = 1 and biBitCount = 8 containing a 1x1 opaque black entry.
+    const ICO: &[u8] = &[
+        0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01,
+        0x00, 0x08, 0x00, 0x34, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00,
+        0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    let icon_dir = ico::IconDir::read(Cursor::new(ICO)).unwrap();
+    let entry = &icon_dir.entries()[0];
+    let num_colors =
+        u32::from_le_bytes(entry.data()[32..36].try_into().unwrap());
+
+    assert_eq!(entry.bits_per_pixel(), 8);
+    assert_eq!(num_colors, 1);
+
+    let image = entry.decode().unwrap();
+
+    assert_eq!(image.width(), 1);
+    assert_eq!(image.height(), 1);
+    assert_eq!(image.rgba_data(), &[0, 0, 0, 255]);
 }
 
 //===========================================================================//
