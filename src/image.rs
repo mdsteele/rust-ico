@@ -294,7 +294,7 @@ impl IconImage {
         let _image_size = reader.read_u32::<LittleEndian>()?;
         let _horz_ppm = reader.read_i32::<LittleEndian>()?;
         let _vert_ppm = reader.read_i32::<LittleEndian>()?;
-        let _colors_used = reader.read_u32::<LittleEndian>()?;
+        let colors_used = reader.read_u32::<LittleEndian>()?;
         let _colors_important = reader.read_u32::<LittleEndian>()?;
 
         // Determine the size of the color table:
@@ -307,7 +307,14 @@ impl IconImage {
                 );
             }
         };
-        let num_colors = depth.num_colors();
+
+        let num_colors = if colors_used == 0
+            || colors_used > depth.max_num_colors() as u32
+        {
+            depth.max_num_colors()
+        } else {
+            colors_used as usize
+        };
 
         // Read in the color table:
         let mut color_table = Vec::<(u8, u8, u8)>::with_capacity(num_colors);
@@ -498,7 +505,7 @@ impl IconImage {
             (BmpDepth::TwentyFour, Vec::new())
         };
         let bits_per_pixel = depth.bits_per_pixel();
-        let num_colors = depth.num_colors();
+        let num_colors = depth.max_num_colors();
 
         // Determine the size of the encoded data:
         let rgb_row_data_size =

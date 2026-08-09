@@ -36,7 +36,7 @@ impl BmpDepth {
         }
     }
 
-    pub(crate) fn num_colors(&self) -> usize {
+    pub(crate) fn max_num_colors(&self) -> usize {
         match *self {
             BmpDepth::One => 2,
             BmpDepth::Four => 16,
